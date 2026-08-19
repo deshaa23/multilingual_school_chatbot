@@ -11,7 +11,8 @@ Main goals:
 5. Attendance month/year filters are handled correctly.
 6. Assignments, attendance, marks and performance do not depend
    on LLM-generated SQL.
-7. LLM SQL is used only as a final fallback.
+7. Assignment subject/title/scope detection is handled deterministically.
+8. LLM SQL is used only as a final fallback.
 """
 
 import re
@@ -88,6 +89,471 @@ SUBJECT_ALIASES = {
     "biology": "biology",
     "bio": "biology",
 }
+
+
+# =========================================================
+# ASSIGNMENT SUBJECT ALIASES
+# =========================================================
+
+ASSIGNMENT_SUBJECT_ALIASES = {
+
+    "math": "mathematics",
+    "maths": "mathematics",
+    "mathematics": "mathematics",
+
+    "science": "science",
+    "sci": "science",
+
+    "sst": "social science",
+    "social studies": "social science",
+    "social sciences": "social science",
+    "social science": "social science",
+
+    "english": "english",
+    "eng": "english",
+
+    "hindi": "hindi",
+    "hin": "hindi",
+
+    "computer": "computer science",
+    "computers": "computer science",
+    "computer studies": "computer science",
+    "computer science": "computer science",
+    "computer subject": "computer science",
+    "comp science": "computer science",
+    "cs": "computer science",
+
+    "physics": "physics",
+    "phy": "physics",
+
+    "chemistry": "chemistry",
+    "chem": "chemistry",
+
+    "biology": "biology",
+    "bio": "biology",
+}
+
+
+# =========================================================
+# ASSIGNMENT SUBJECT DETECTION
+# =========================================================
+
+def detect_assignment_subject(question: str):
+    """
+    Detect subject specifically for assignment queries.
+
+    Examples:
+
+        chemistry assignment
+        my chemistry assignments
+        assignments for maths
+        science homework
+        computer science assignment
+
+    Returns:
+        canonical subject name or None
+    """
+
+    if not question:
+        return None
+
+    q = question.lower()
+
+    # Normalize punctuation.
+    q = re.sub(r"[?!.:,;]", " ", q)
+    q = re.sub(r"\s+", " ", q).strip()
+
+    # Longest first so that:
+    # computer science
+    # is checked before computer
+    subjects = sorted(
+        ASSIGNMENT_SUBJECT_ALIASES.keys(),
+        key=len,
+        reverse=True
+    )
+
+    for subject in subjects:
+
+        if re.search(
+            rf"\b{re.escape(subject)}\b",
+            q
+        ):
+
+            return ASSIGNMENT_SUBJECT_ALIASES[subject]
+
+    return None
+
+
+# =========================================================
+# ASSIGNMENT TITLE EXTRACTION
+# =========================================================
+
+def extract_assignment_title(question: str):
+    """
+    Extract a specific assignment title from natural language.
+
+    Examples:
+
+        What is due date for Python Basics assignment?
+        -> Python Basics
+
+        When is Python Basics assignment due?
+        -> Python Basics
+
+        Show Python Basics assignment
+        -> Python Basics
+
+        What is my chemistry assignment?
+        -> None
+
+        Show my assignments
+        -> None
+    """
+
+    if not question:
+        return None
+
+    q = question.strip()
+
+    q = re.sub(
+        r"[?]+$",
+        "",
+        q
+    ).strip()
+
+    # -----------------------------------------------------
+    # Words which should NOT become assignment titles.
+    # -----------------------------------------------------
+
+    subject_words = set(
+        ASSIGNMENT_SUBJECT_ALIASES.keys()
+    )
+
+    # -----------------------------------------------------
+    # Specific patterns
+    # -----------------------------------------------------
+
+    patterns = [
+
+        # What is the due date for Python Basics assignment?
+        r"(?:what\s+is\s+the\s+)?due\s*date\s+(?:for|of)\s+(.+?)\s+assignment\b",
+
+        # What is due date for Python Basics assignment?
+        r"due\s*date\s+(?:for|of)\s+(.+?)\s+assignment\b",
+
+        # When is Python Basics assignment due?
+        r"(?:when\s+is|when's)\s+(.+?)\s+assignment\s+due\b",
+
+        # When is the Python Basics assignment due?
+        r"(?:when\s+is|when's)\s+(?:the\s+)?(.+?)\s+assignment\s+due\b",
+
+        # Tell me about Python Basics assignment
+        r"(?:tell\s+me\s+about)\s+(?:my\s+|the\s+)?(.+?)\s+assignment\b",
+
+        # Show Python Basics assignment
+        r"(?:show|find|get)\s+(?:my\s+|the\s+)?(.+?)\s+assignment\b",
+
+        # What is Python Basics assignment?
+        r"(?:what\s+is)\s+(?:my\s+|the\s+)?(.+?)\s+assignment\b",
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            q,
+            re.IGNORECASE
+        )
+
+        if not match:
+            continue
+
+        title = match.group(1).strip()
+
+        # Remove unnecessary words.
+        title = re.sub(
+            r"^(my|the|a|an)\s+",
+            "",
+            title,
+            flags=re.IGNORECASE
+        ).strip()
+
+        # Remove trailing words.
+        title = re.sub(
+            r"\s+(?:is|due)$",
+            "",
+            title,
+            flags=re.IGNORECASE
+        ).strip()
+
+        if not title:
+            continue
+
+        # -------------------------------------------------
+        # If the extracted text is ONLY a subject,
+        # it is not an assignment title.
+        #
+        # Chemistry assignment
+        # -> subject = chemistry
+        # -> title = None
+        # -------------------------------------------------
+
+        normalized_title = title.lower().strip()
+
+        if normalized_title in subject_words:
+            return None
+
+        # Also check canonical subject names.
+        canonical_subjects = set(
+            ASSIGNMENT_SUBJECT_ALIASES.values()
+        )
+
+        if normalized_title in canonical_subjects:
+            return None
+
+        return title
+
+    return None
+
+
+# =========================================================
+# ASSIGNMENT SCOPE DETECTION
+# =========================================================
+
+def detect_assignment_scope(question: str):
+    """
+    Detect date/scope filters for assignments.
+
+    Supported:
+
+        today
+        tomorrow
+        upcoming
+        overdue
+        this week
+        next week
+        all
+
+    Returns:
+        scope string or None
+    """
+
+    if not question:
+        return None
+
+    q = question.lower().strip()
+
+    # -----------------------------------------------------
+    # OVERDUE
+    # -----------------------------------------------------
+
+    overdue_patterns = [
+        "overdue",
+        "past due",
+        "late assignment",
+        "late assignments",
+        "missed assignment",
+        "missed assignments",
+    ]
+
+    for pattern in overdue_patterns:
+
+        if pattern in q:
+            return "overdue"
+
+    # -----------------------------------------------------
+    # TODAY
+    # -----------------------------------------------------
+
+    today_patterns = [
+        "due today",
+        "today's assignment",
+        "today's assignments",
+        "assignments today",
+        "assignment today",
+    ]
+
+    for pattern in today_patterns:
+
+        if pattern in q:
+            return "today"
+
+    # -----------------------------------------------------
+    # TOMORROW
+    # -----------------------------------------------------
+
+    tomorrow_patterns = [
+        "due tomorrow",
+        "tomorrow's assignment",
+        "tomorrow's assignments",
+        "assignments tomorrow",
+        "assignment tomorrow",
+    ]
+
+    for pattern in tomorrow_patterns:
+
+        if pattern in q:
+            return "tomorrow"
+
+    # -----------------------------------------------------
+    # THIS WEEK
+    # -----------------------------------------------------
+
+    this_week_patterns = [
+        "this week",
+        "this week's assignments",
+        "assignments this week",
+        "due this week",
+    ]
+
+    for pattern in this_week_patterns:
+
+        if pattern in q:
+            return "this_week"
+
+    # -----------------------------------------------------
+    # NEXT WEEK
+    # -----------------------------------------------------
+
+    next_week_patterns = [
+        "next week",
+        "next week's assignments",
+        "assignments next week",
+        "due next week",
+    ]
+
+    for pattern in next_week_patterns:
+
+        if pattern in q:
+            return "next_week"
+
+    # -----------------------------------------------------
+    # UPCOMING
+    # -----------------------------------------------------
+
+    upcoming_patterns = [
+        "upcoming",
+        "upcoming assignments",
+        "assignments coming up",
+        "coming assignments",
+        "what is due",
+        "what's due",
+        "what is due soon",
+        "what's due soon",
+        "next assignments",
+    ]
+
+    for pattern in upcoming_patterns:
+
+        if pattern in q:
+            return "upcoming"
+
+    return None
+
+
+# =========================================================
+# ASSIGNMENT SUBJECT CONDITION
+# =========================================================
+
+def assignment_subject_condition(
+    subject,
+    alias="sub"
+):
+    """
+    Build safe SQL subject filter.
+    """
+
+    if not subject:
+        return ""
+
+    subject = str(
+        subject
+    ).lower().strip()
+
+    # Normalize alias.
+    subject = ASSIGNMENT_SUBJECT_ALIASES.get(
+        subject,
+        SUBJECT_ALIASES.get(
+            subject,
+            subject
+        )
+    )
+
+    subject = subject.replace(
+        "'",
+        "''"
+    )
+
+    # -----------------------------------------------------
+    # COMPUTER SCIENCE
+    # -----------------------------------------------------
+
+    if subject == "computer science":
+
+        return f"""
+AND LOWER(TRIM({alias}.subject_name))
+    LIKE '%computer%science%'
+""".strip()
+
+    # -----------------------------------------------------
+    # SOCIAL SCIENCE
+    # -----------------------------------------------------
+
+    if subject == "social science":
+
+        return f"""
+AND LOWER(TRIM({alias}.subject_name))
+    LIKE '%social%science%'
+""".strip()
+
+    # -----------------------------------------------------
+    # NORMAL SUBJECT
+    # -----------------------------------------------------
+
+    return f"""
+AND LOWER(TRIM({alias}.subject_name))
+    = LOWER('{subject}')
+""".strip()
+
+
+# =========================================================
+# ASSIGNMENT TITLE CONDITION
+# =========================================================
+
+def assignment_title_condition(
+    title,
+    alias="a"
+):
+    """
+    Build flexible assignment title filter.
+
+    Uses ILIKE so:
+
+        Python Basics
+        python basics
+        PYTHON BASICS
+
+    all work.
+    """
+
+    if not title:
+        return ""
+
+    title = str(
+        title
+    ).strip()
+
+    if not title:
+        return ""
+
+    title = title.replace(
+        "'",
+        "''"
+    )
+
+    return f"""
+AND {alias}.title ILIKE '%{title}%'
+""".strip()
 
 
 # =========================================================
@@ -345,7 +811,7 @@ MONTH_MAP = {
 
 
 # =========================================================
-# EXTRACT MONTH/YEAR FROM QUESTION
+# EXTRACT MONTH/YEAR
 # =========================================================
 
 def extract_month_from_question(question: str):
@@ -392,15 +858,14 @@ def extract_month_from_question(question: str):
             "year": now.year
         }
 
-    # -----------------------------------------------------
-    # MONTH + YEAR
-    # Example: June 2026
-    # -----------------------------------------------------
-
     month_pattern = "|".join(
         re.escape(x)
         for x in MONTH_MAP.keys()
     )
+
+    # -----------------------------------------------------
+    # MONTH + YEAR
+    # -----------------------------------------------------
 
     match = re.search(
         rf"\b({month_pattern})\s+((?:19|20)\d{{2}})\b",
@@ -419,7 +884,6 @@ def extract_month_from_question(question: str):
 
     # -----------------------------------------------------
     # YEAR + MONTH
-    # Example: 2026 June
     # -----------------------------------------------------
 
     match = re.search(
@@ -439,7 +903,6 @@ def extract_month_from_question(question: str):
 
     # -----------------------------------------------------
     # MONTH ONLY
-    # Example: attendance in June
     # -----------------------------------------------------
 
     for month_name, month_number in MONTH_MAP.items():
@@ -490,10 +953,6 @@ def month_condition(
         f") = {month}"
     )
 
-    # -----------------------------------------------------
-    # YEAR FILTER
-    # -----------------------------------------------------
-
     if year is not None:
 
         try:
@@ -510,7 +969,6 @@ def month_condition(
             TypeError,
             ValueError
         ):
-
             pass
 
     return condition
@@ -535,13 +993,10 @@ def resolve_attendance_month(
         "year"
     )
 
-    extracted = (
-        extract_month_from_question(
-            question
-        )
+    extracted = extract_month_from_question(
+        question
     )
 
-    # Planner constraint first.
     if month is None and extracted:
 
         month = extracted.get(
@@ -1094,10 +1549,6 @@ ORDER BY
                 str(subject).lower().strip()
             )
 
-        # -------------------------------------------------
-        # SUBJECT FILTER
-        # -------------------------------------------------
-
         subject_filter = ""
 
         if subject:
@@ -1127,10 +1578,6 @@ AND LOWER(TRIM(sub.subject_name))
                     "\nAND LOWER(TRIM(sub.subject_name)) "
                     f"= LOWER('{safe_subject}')"
                 )
-
-        # -------------------------------------------------
-        # EXAM
-        # -------------------------------------------------
 
         exam_filter = exam_condition(
             constraints.get("exam"),
@@ -1226,20 +1673,12 @@ ORDER BY
 
         # -------------------------------------------------
         # MONTHLY ATTENDANCE
-        #
-        # "Show my attendance"
-        # "Show attendance"
-        # "Show my attendance for June"
-        # "My attendance in June 2026"
         # -------------------------------------------------
 
         if metric in {
             "",
             "monthly_attendance",
         }:
-
-            # No explicit month:
-            # use current month.
 
             if month is None:
 
@@ -1257,9 +1696,7 @@ DATE_TRUNC(
 
             else:
 
-                monthly_filter = (
-                    month_filter
-                )
+                monthly_filter = month_filter
 
             sql = f"""
 SELECT
@@ -1277,16 +1714,6 @@ ORDER BY
     a.attendance_date ASC;
 """.strip()
 
-            print(
-                "\n===== MONTHLY ATTENDANCE SQL ====="
-            )
-
-            print(sql)
-
-            print(
-                "=================================="
-            )
-
             return clean_sql(sql)
 
         # -------------------------------------------------
@@ -1295,7 +1722,7 @@ ORDER BY
 
         if metric == "absent_dates":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
     a.attendance_date,
     a.status
@@ -1313,7 +1740,7 @@ AND LOWER(
 
 ORDER BY
     a.attendance_date ASC;
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # PRESENT DATES
@@ -1321,7 +1748,7 @@ ORDER BY
 
         if metric == "present_dates":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
     a.attendance_date,
     a.status
@@ -1339,7 +1766,7 @@ AND LOWER(
 
 ORDER BY
     a.attendance_date ASC;
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # ABSENT COUNT
@@ -1347,7 +1774,7 @@ ORDER BY
 
         if metric == "absent_days":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
     COUNT(*) AS absent_days
 
@@ -1361,7 +1788,7 @@ AND LOWER(
 ) = 'absent'
 
 {month_filter};
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # PRESENT COUNT
@@ -1369,7 +1796,7 @@ AND LOWER(
 
         if metric == "present_days":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
     COUNT(*) AS present_days
 
@@ -1383,7 +1810,7 @@ AND LOWER(
 ) = 'present'
 
 {month_filter};
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # LATE
@@ -1396,7 +1823,7 @@ AND LOWER(
 
             if metric == "late_days":
 
-                return f"""
+                return clean_sql(f"""
 SELECT
     COUNT(*) AS late_days
 
@@ -1410,9 +1837,9 @@ AND LOWER(
 ) = 'late'
 
 {month_filter};
-""".strip()
+""".strip())
 
-            return f"""
+            return clean_sql(f"""
 SELECT
     a.attendance_date,
     a.status
@@ -1430,7 +1857,7 @@ AND LOWER(
 
 ORDER BY
     a.attendance_date ASC;
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # ATTENDANCE PERCENTAGE
@@ -1438,49 +1865,33 @@ ORDER BY
 
         if metric == "attendance_percentage":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
 
     COUNT(*) AS total_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'present'
+        WHERE LOWER(TRIM(a.status)) = 'present'
     ) AS present_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'absent'
+        WHERE LOWER(TRIM(a.status)) = 'absent'
     ) AS absent_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'late'
+        WHERE LOWER(TRIM(a.status)) = 'late'
     ) AS late_days,
 
     ROUND(
-
         (
             COUNT(*) FILTER (
-                WHERE LOWER(
-                    TRIM(a.status)
-                ) IN (
-                    'present',
-                    'late'
-                )
+                WHERE LOWER(TRIM(a.status))
+                IN ('present', 'late')
             ) * 100.0
         )
         /
-        NULLIF(
-            COUNT(*),
-            0
-        ),
-
+        NULLIF(COUNT(*), 0),
         2
-
     ) AS attendance_percentage
 
 FROM attendance a
@@ -1489,7 +1900,7 @@ WHERE a.student_id =
       {student_id}
 
 {month_filter};
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # ATTENDANCE SUMMARY
@@ -1497,49 +1908,33 @@ WHERE a.student_id =
 
         if metric == "attendance_summary":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
 
     COUNT(*) AS total_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'present'
+        WHERE LOWER(TRIM(a.status)) = 'present'
     ) AS present_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'absent'
+        WHERE LOWER(TRIM(a.status)) = 'absent'
     ) AS absent_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'late'
+        WHERE LOWER(TRIM(a.status)) = 'late'
     ) AS late_days,
 
     ROUND(
-
         (
             COUNT(*) FILTER (
-                WHERE LOWER(
-                    TRIM(a.status)
-                ) IN (
-                    'present',
-                    'late'
-                )
+                WHERE LOWER(TRIM(a.status))
+                IN ('present', 'late')
             ) * 100.0
         )
         /
-        NULLIF(
-            COUNT(*),
-            0
-        ),
-
+        NULLIF(COUNT(*), 0),
         2
-
     ) AS attendance_percentage
 
 FROM attendance a
@@ -1548,7 +1943,7 @@ WHERE a.student_id =
       {student_id}
 
 {month_filter};
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # ELIGIBILITY
@@ -1556,40 +1951,26 @@ WHERE a.student_id =
 
         if metric == "attendance_eligibility":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
 
     COUNT(*) AS total_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) IN (
-            'present',
-            'late'
-        )
+        WHERE LOWER(TRIM(a.status))
+        IN ('present', 'late')
     ) AS attended_days,
 
     ROUND(
-
         (
             COUNT(*) FILTER (
-                WHERE LOWER(
-                    TRIM(a.status)
-                ) IN (
-                    'present',
-                    'late'
-                )
+                WHERE LOWER(TRIM(a.status))
+                IN ('present', 'late')
             ) * 100.0
         )
         /
-        NULLIF(
-            COUNT(*),
-            0
-        ),
-
+        NULLIF(COUNT(*), 0),
         2
-
     ) AS attendance_percentage
 
 FROM attendance a
@@ -1598,7 +1979,7 @@ WHERE a.student_id =
       {student_id}
 
 {month_filter};
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # ATTENDANCE TREND
@@ -1606,7 +1987,7 @@ WHERE a.student_id =
 
         if metric == "attendance_trend":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
 
     DATE_TRUNC(
@@ -1617,43 +1998,27 @@ SELECT
     COUNT(*) AS total_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'present'
+        WHERE LOWER(TRIM(a.status)) = 'present'
     ) AS present_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'absent'
+        WHERE LOWER(TRIM(a.status)) = 'absent'
     ) AS absent_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'late'
+        WHERE LOWER(TRIM(a.status)) = 'late'
     ) AS late_days,
 
     ROUND(
-
         (
             COUNT(*) FILTER (
-                WHERE LOWER(
-                    TRIM(a.status)
-                ) IN (
-                    'present',
-                    'late'
-                )
+                WHERE LOWER(TRIM(a.status))
+                IN ('present', 'late')
             ) * 100.0
         )
         /
-        NULLIF(
-            COUNT(*),
-            0
-        ),
-
+        NULLIF(COUNT(*), 0),
         2
-
     ) AS attendance_percentage
 
 FROM attendance a
@@ -1669,7 +2034,7 @@ GROUP BY
 
 ORDER BY
     month ASC;
-""".strip()
+""".strip())
 
         # -------------------------------------------------
         # ATTENDANCE COMPARISON
@@ -1677,7 +2042,7 @@ ORDER BY
 
         if metric == "attendance_comparison":
 
-            return f"""
+            return clean_sql(f"""
 SELECT
 
     DATE_TRUNC(
@@ -1688,40 +2053,24 @@ SELECT
     COUNT(*) AS total_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) IN (
-            'present',
-            'late'
-        )
+        WHERE LOWER(TRIM(a.status))
+        IN ('present', 'late')
     ) AS attended_days,
 
     COUNT(*) FILTER (
-        WHERE LOWER(
-            TRIM(a.status)
-        ) = 'absent'
+        WHERE LOWER(TRIM(a.status)) = 'absent'
     ) AS absent_days,
 
     ROUND(
-
         (
             COUNT(*) FILTER (
-                WHERE LOWER(
-                    TRIM(a.status)
-                ) IN (
-                    'present',
-                    'late'
-                )
+                WHERE LOWER(TRIM(a.status))
+                IN ('present', 'late')
             ) * 100.0
         )
         /
-        NULLIF(
-            COUNT(*),
-            0
-        ),
-
+        NULLIF(COUNT(*), 0),
         2
-
     ) AS attendance_percentage
 
 FROM attendance a
@@ -1737,7 +2086,7 @@ GROUP BY
 
 ORDER BY
     month ASC;
-""".strip()
+""".strip())
 
     # =====================================================
     # ASSIGNMENTS
@@ -1745,11 +2094,84 @@ ORDER BY
 
     if intent == "assignments":
 
-        scope = constraints.get(
-            "assignment_scope"
+        # -------------------------------------------------
+        # SUBJECT
+        # -------------------------------------------------
+
+        subject = (
+            constraints.get("subject")
+            or context.get("subject")
+            or detect_assignment_subject(question)
         )
 
-        extra_condition = ""
+        if subject:
+
+            subject = ASSIGNMENT_SUBJECT_ALIASES.get(
+                str(subject).lower().strip(),
+                SUBJECT_ALIASES.get(
+                    str(subject).lower().strip(),
+                    str(subject).lower().strip()
+                )
+            )
+
+        # -------------------------------------------------
+        # ASSIGNMENT TITLE
+        # -------------------------------------------------
+
+        assignment_title = (
+            constraints.get("assignment_title")
+            or constraints.get("title")
+            or extract_assignment_title(question)
+        )
+
+        # -------------------------------------------------
+        # SCOPE
+        # -------------------------------------------------
+
+        scope = (
+            constraints.get("assignment_scope")
+            or constraints.get("scope")
+            or detect_assignment_scope(question)
+        )
+
+        print(
+            "\n===== ASSIGNMENT DEBUG ====="
+        )
+
+        print("Question:", question)
+        print("Subject:", subject)
+        print("Assignment Title:", assignment_title)
+        print("Scope:", scope)
+        print("Metric:", metric)
+        print("Constraints:", constraints)
+
+        print(
+            "============================"
+        )
+
+        # -------------------------------------------------
+        # SUBJECT FILTER
+        # -------------------------------------------------
+
+        subject_filter = assignment_subject_condition(
+            subject,
+            "sub"
+        )
+
+        # -------------------------------------------------
+        # TITLE FILTER
+        # -------------------------------------------------
+
+        title_filter = assignment_title_condition(
+            assignment_title,
+            "a"
+        )
+
+        # -------------------------------------------------
+        # DATE / SCOPE FILTER
+        # -------------------------------------------------
+
+        scope_filter = ""
 
         # -------------------------------------------------
         # OVERDUE
@@ -1757,7 +2179,7 @@ ORDER BY
 
         if scope == "overdue":
 
-            extra_condition = """
+            scope_filter = """
 AND a.due_date < CURRENT_DATE
 """.strip()
 
@@ -1767,7 +2189,7 @@ AND a.due_date < CURRENT_DATE
 
         elif scope == "today":
 
-            extra_condition = """
+            scope_filter = """
 AND a.due_date = CURRENT_DATE
 """.strip()
 
@@ -1777,54 +2199,54 @@ AND a.due_date = CURRENT_DATE
 
         elif scope == "tomorrow":
 
-            extra_condition = """
+            scope_filter = """
 AND a.due_date =
     CURRENT_DATE + INTERVAL '1 day'
 """.strip()
 
         # -------------------------------------------------
-        # UPCOMING / PENDING
+        # THIS WEEK
         # -------------------------------------------------
 
-        elif scope in {
-            "upcoming",
-            "pending",
-        }:
+        elif scope == "this_week":
 
-            extra_condition = """
+            scope_filter = """
+AND a.due_date >= CURRENT_DATE
+AND a.due_date < CURRENT_DATE + INTERVAL '7 days'
+""".strip()
+
+        # -------------------------------------------------
+        # NEXT WEEK
+        # -------------------------------------------------
+
+        elif scope == "next_week":
+
+            scope_filter = """
+AND a.due_date >=
+    DATE_TRUNC('week', CURRENT_DATE)
+    + INTERVAL '7 days'
+
+AND a.due_date <
+    DATE_TRUNC('week', CURRENT_DATE)
+    + INTERVAL '14 days'
+""".strip()
+
+        # -------------------------------------------------
+        # UPCOMING
+        # -------------------------------------------------
+
+        elif scope == "upcoming":
+
+            scope_filter = """
 AND a.due_date >= CURRENT_DATE
 """.strip()
 
         # -------------------------------------------------
-        # COMPLETED
+        # FINAL ASSIGNMENT QUERY
         # -------------------------------------------------
-
-        elif scope == "completed":
-
-            # Adjust this only if your assignments table
-            # uses a different completion column.
-            extra_condition = """
-AND LOWER(
-    COALESCE(a.status, '')
-) IN (
-    'completed',
-    'submitted',
-    'done'
-)
-""".strip()
-
-        # -------------------------------------------------
-        # SUBJECT
-        # -------------------------------------------------
-
-        subject_filter = subject_condition(
-            question,
-            "sub"
-        )
 
         sql = f"""
 SELECT
-
     sub.subject_name,
     a.title,
     a.description,
@@ -1848,23 +2270,26 @@ JOIN subjects sub
 WHERE st.student_id =
       {student_id}
 
-{extra_condition}
-
 {subject_filter}
+
+{title_filter}
+
+{scope_filter}
 
 ORDER BY
     a.due_date ASC NULLS LAST,
-    sub.subject_name ASC;
+    sub.subject_name ASC,
+    a.title ASC;
 """.strip()
 
         print(
-            "\n===== ASSIGNMENTS SQL ====="
+            "\n===== DETERMINISTIC ASSIGNMENT SQL ====="
         )
 
         print(sql)
 
         print(
-            "==========================="
+            "========================================="
         )
 
         return clean_sql(sql)
@@ -1897,7 +2322,7 @@ ORDER BY
 LIMIT 1
 """.strip()
 
-        return f"""
+        return clean_sql(f"""
 SELECT
 
     t.day_of_week,
@@ -1930,9 +2355,7 @@ WHERE st.student_id =
 
 ORDER BY
 
-    CASE LOWER(
-        TRIM(t.day_of_week)
-    )
+    CASE LOWER(TRIM(t.day_of_week))
 
         WHEN 'monday' THEN 1
         WHEN 'tuesday' THEN 2
@@ -1947,7 +2370,7 @@ ORDER BY
     t.start_time
 
 {next_limit};
-""".strip()
+""".strip())
 
     # =====================================================
     # EXAMS
@@ -1960,7 +2383,7 @@ ORDER BY
             "e"
         )
 
-        return f"""
+        return clean_sql(f"""
 SELECT
 
     e.exam_name,
@@ -1976,7 +2399,7 @@ WHERE 1 = 1
 
 ORDER BY
     e.start_date ASC;
-""".strip()
+""".strip())
 
     # =====================================================
     # TEACHER
@@ -1989,7 +2412,7 @@ ORDER BY
             "sub"
         )
 
-        return f"""
+        return clean_sql(f"""
 SELECT DISTINCT
 
     t.first_name,
@@ -2020,7 +2443,7 @@ ORDER BY
     sub.subject_name,
     t.last_name,
     t.first_name;
-""".strip()
+""".strip())
 
     # =====================================================
     # PROFILE
@@ -2028,7 +2451,7 @@ ORDER BY
 
     if intent == "profile":
 
-        return f"""
+        return clean_sql(f"""
 SELECT
     s.student_id,
     s.first_name,
@@ -2049,7 +2472,7 @@ JOIN classes c
 
 WHERE s.student_id =
       {student_id};
-""".strip()
+""".strip())
 
     # =====================================================
     # FALLBACK LLM SQL
