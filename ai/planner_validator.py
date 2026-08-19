@@ -183,60 +183,6 @@ WEEKDAYS = {
     "sunday",
 }
 
-# =========================================================
-# SUBJECT NORMALIZATION
-# =========================================================
-
-SUBJECT_NORMALIZATION = {
-
-    "math": "mathematics",
-    "maths": "mathematics",
-    "mathematics": "mathematics",
-
-    "sci": "science",
-    "science": "science",
-
-    "social studies": "social science",
-    "social sciences": "social science",
-    "sst": "social science",
-    "social science": "social science",
-
-    "eng": "english",
-    "english": "english",
-
-    "hin": "hindi",
-    "hindi": "hindi",
-
-    "computer": "computer science",
-    "computers": "computer science",
-    "computer studies": "computer science",
-    "comp science": "computer science",
-    "cs": "computer science",
-    "computer science": "computer science",
-
-    "phy": "physics",
-    "physics": "physics",
-
-    "chem": "chemistry",
-    "chemistry": "chemistry",
-
-    "bio": "biology",
-    "biology": "biology",
-}
-
-
-def normalize_subject(subject):
-
-    if not subject:
-        return None
-
-    subject = str(subject).lower().strip()
-
-    return SUBJECT_NORMALIZATION.get(
-        subject,
-        subject
-    )
-
 
 # =========================================================
 # SUBJECT SYNONYMS
@@ -484,10 +430,10 @@ PERFORMANCE_PATTERNS = {
         "my best subject",
         "my highest scoring subject",
         "my highest marks subject",
-        "highest score",
-        "highest marks",
-        "top score",
-        "best score",
+        "highest scoring subject",
+        "highest marks subject",
+        "top scoring subject",
+        "best performing subject",
     ],
 
     "lowest_subject": [
@@ -569,8 +515,16 @@ PERFORMANCE_PATTERNS = {
         "overall percentage",
         "total performance",
         "academic performance",
+        "marks performance",
+        "my marks performance",
+        "how did i perform",
+        "how did i perform overall",
         "how am i performing",
+        "how am i doing",
         "how am i doing academically",
+        "how well am i doing",
+        "how well am i doing overall",
+        "my performance",
     ],
 }
 
@@ -725,11 +679,10 @@ RAG_LIBRARY_WORDS = [
 RAG_FEE_WORDS = [
     "fee policy",
     "fees policy",
-    "school fees",
     "fee structure",
     "fees structure",
     "refund policy",
-    "fee refund",
+    "fee refund policy",
     "payment policy",
 ]
 
@@ -868,6 +821,37 @@ def make_plan(
 
 
 # =========================================================
+# SUBJECT NORMALIZATION
+# =========================================================
+
+SUBJECT_NORMALIZATION = {
+    "math": "mathematics",
+    "maths": "mathematics",
+    "sci": "science",
+    "social studies": "social science",
+    "social sciences": "social science",
+    "sst": "social science",
+    "computer": "computer science",
+    "computers": "computer science",
+    "computer studies": "computer science",
+    "comp science": "computer science",
+    "cs": "computer science",
+    "c.s.": "computer science",
+    "eng": "english",
+    "hin": "hindi",
+    "phy": "physics",
+    "chem": "chemistry",
+    "bio": "biology",
+}
+
+def normalize_subject(subject):
+    if not subject:
+        return None
+    value = str(subject).lower().strip()
+    return SUBJECT_NORMALIZATION.get(value, value)
+
+
+# =========================================================
 # SUBJECT DETECTION
 # =========================================================
 
@@ -906,7 +890,7 @@ def detect_subject(q: str):
         reverse=True
     )
 
-    return candidates[0][1]
+    return normalize_subject(candidates[0][1])
 
 
 # =========================================================
@@ -1426,6 +1410,39 @@ def detect_attendance_plan(q: str):
 def detect_performance_plan(q: str):
 
     # -----------------------------------------------------
+    # HIGHEST / LOWEST SCORE
+    # -----------------------------------------------------
+    if contains_any(q, [
+        "highest score", "highest marks", "maximum score",
+        "maximum marks", "best score", "best marks",
+        "top score", "top marks", "most marks",
+    ]):
+        return make_plan(
+            "marks",
+            metric="highest_score",
+            query_type="information",
+            operation="fetch",
+            source="sql",
+            confidence=1.0,
+            reasoning="Detected highest-score query."
+        )
+
+    if contains_any(q, [
+        "lowest score", "lowest marks", "minimum score",
+        "minimum marks", "worst score", "worst marks",
+        "least marks",
+    ]):
+        return make_plan(
+            "marks",
+            metric="lowest_score",
+            query_type="information",
+            operation="fetch",
+            source="sql",
+            confidence=1.0,
+            reasoning="Detected lowest-score query."
+        )
+
+    # -----------------------------------------------------
     # HIGHEST SUBJECT
     # -----------------------------------------------------
 
@@ -1835,10 +1852,6 @@ def detect_timetable_plan(q: str):
 # MARKS DETECTION
 # =========================================================
 
-# =========================================================
-# MARKS DETECTION
-# =========================================================
-
 def detect_marks_plan(q: str):
 
     marks_words = [
@@ -1863,54 +1876,31 @@ def detect_marks_plan(q: str):
         "my result",
     ]
 
-    if not contains_any(q, marks_words):
+    if not contains_any(
+        q,
+        marks_words
+    ):
         return None
 
-    # -----------------------------------------------------
-    # Do not steal performance queries
-    # -----------------------------------------------------
-
+    # Do not steal performance queries.
     performance_plan = detect_performance_plan(q)
 
     if performance_plan:
         return performance_plan
 
-    # -----------------------------------------------------
-    # DETECT SUBJECT
-    # -----------------------------------------------------
-
-    subject = detect_subject(q)
-
-    # -----------------------------------------------------
-    # DETECT EXAM
-    # -----------------------------------------------------
+    constraints = {}
 
     exam_info = detect_exam_constraint(q)
 
-    # -----------------------------------------------------
-    # BUILD CONSTRAINTS
-    # -----------------------------------------------------
-
-    constraints = {}
-
-    if subject:
-        constraints["subject"] = subject
-
-    if exam_info.get("exam"):
+    if exam_info["exam"]:
         constraints["exam"] = exam_info["exam"]
-
-    # -----------------------------------------------------
-    # CONTEXT
-    # -----------------------------------------------------
 
     context = {}
 
+    subject = detect_subject(q)
+
     if subject:
         context["subject"] = subject
-
-    # -----------------------------------------------------
-    # FINAL PLAN
-    # -----------------------------------------------------
 
     return make_plan(
         "marks",
@@ -1919,6 +1909,7 @@ def detect_marks_plan(q: str):
         confidence=1.0,
         reasoning="Detected marks/score/result query."
     )
+
 
 # =========================================================
 # TEACHER DETECTION
@@ -1993,6 +1984,25 @@ def detect_profile_plan(q: str):
         "profile",
         confidence=1.0,
         reasoning="Detected student-profile query."
+    )
+
+
+# =========================================================
+# PERSONAL FEE DETECTION
+# =========================================================
+
+def detect_fee_plan(q: str):
+    if not contains_any(q, [
+        "my fees", "my fee", "fee pending", "fees pending",
+        "fee paid", "fees paid", "have i paid my fees",
+        "how much fee is pending", "how much fees is pending",
+    ]):
+        return None
+    return make_plan(
+        "fees",
+        source="sql",
+        confidence=1.0,
+        reasoning="Detected personal student-fee query."
     )
 
 
@@ -2499,7 +2509,14 @@ def validate_plan(
         return profile_plan
 
     # =====================================================
-    # 9. MARKS
+    # 9. PERSONAL FEES
+    # =====================================================
+    fee_plan = detect_fee_plan(q)
+    if fee_plan:
+        return fee_plan
+
+    # =====================================================
+    # 10. MARKS
     # =====================================================
 
     marks_plan = detect_marks_plan(
