@@ -3,44 +3,18 @@ planner_validator.py
 
 School Chatbot Query Planner + Validator
 
-Architecture:
-
-USER QUERY
-    ↓
-LLM PLANNER
-    ↓
-NORMALIZATION
-    ↓
-HIGH-CONFIDENCE DETERMINISTIC GUARDRAILS
-    ↓
-SEMANTIC EMBEDDING ROUTER
-    ↓
-FINAL VALIDATED PLAN
-
-Design goals
-------------
-1. Do NOT hard-code every possible sentence.
-2. Use synonym families and semantic routing.
-3. Deterministic rules override bad embedding classifications.
-4. Personal school-data questions -> SQL.
-5. Policy / announcement / library / general knowledge -> RAG.
-6. Hybrid is reserved for queries requiring both SQL + RAG.
-7. Student-specific queries always remain SQL.
-8. Detect:
-   - marks
-   - exams
-   - attendance
-   - assignments
-   - timetable
-   - performance
-   - teacher
-   - profile
-   - RAG
-9. Detect useful metrics and constraints.
-10. Normalize common user language before routing.
+Main goals:
+1. Deterministic routing for school-data queries.
+2. Student-specific data -> SQL.
+3. School policies / announcements / library -> RAG.
+4. Normalize subjects consistently.
+5. Correctly detect month/year for attendance.
+6. Correctly distinguish marks from performance.
+7. Prevent LLM / embedding router from overriding strong rules.
 """
 
 import re
+from datetime import datetime
 
 from ai.intent_embedding import detect_intent
 
@@ -86,10 +60,23 @@ VALID_SOURCES = {
     "unknown",
 }
 
+
+# =========================================================
+# VALID METRICS
+# =========================================================
+
 VALID_METRICS = {
     "",
 
-    # Performance
+    # -------------------------
+    # MARKS
+    # -------------------------
+    "highest_score",
+    "lowest_score",
+
+    # -------------------------
+    # PERFORMANCE
+    # -------------------------
     "trend",
     "highest_subject",
     "lowest_subject",
@@ -102,7 +89,10 @@ VALID_METRICS = {
     "best_exam",
     "worst_exam",
 
-    # Attendance
+    # -------------------------
+    # ATTENDANCE
+    # -------------------------
+    "monthly_attendance",
     "attendance_trend",
     "attendance_summary",
     "attendance_percentage",
@@ -115,7 +105,9 @@ VALID_METRICS = {
     "late_days",
     "late_dates",
 
-    # Assignments
+    # -------------------------
+    # ASSIGNMENTS
+    # -------------------------
     "assignment_summary",
     "upcoming_assignments",
     "overdue_assignments",
@@ -186,28 +178,22 @@ WEEKDAYS = {
 
 # =========================================================
 # SUBJECT SYNONYMS
-#
-# These are semantic hints, NOT database values.
-# The SQL generator handles actual subject matching.
 # =========================================================
 
 SUBJECT_SYNONYMS = {
 
     "mathematics": [
+        "mathematics",
         "math",
         "maths",
-        "mathematics",
         "math paper",
         "maths paper",
-        "math subject",
-        "mathematics subject",
     ],
 
     "science": [
         "science",
         "sci",
         "science paper",
-        "science subject",
     ],
 
     "social science": [
@@ -216,22 +202,18 @@ SUBJECT_SYNONYMS = {
         "social studies",
         "sst",
         "s.s.t",
-        "social studies paper",
-        "social science paper",
     ],
 
     "english": [
         "english",
         "english language",
         "english paper",
-        "english subject",
     ],
 
     "hindi": [
         "hindi",
         "hindi language",
         "hindi paper",
-        "hindi subject",
     ],
 
     "computer science": [
@@ -243,83 +225,118 @@ SUBJECT_SYNONYMS = {
         "computer studies",
         "computer subject",
         "computer science subject",
-        "programming",
+        "programming subject",
         "coding subject",
     ],
 
     "physics": [
         "physics",
         "phy",
-        "physics paper",
     ],
 
     "chemistry": [
         "chemistry",
         "chem",
-        "chemistry paper",
     ],
 
     "biology": [
         "biology",
         "bio",
-        "biology paper",
-    ],
-
-    "history": [
-        "history",
-        "history subject",
-        "history paper",
-    ],
-
-    "geography": [
-        "geography",
-        "geo",
-        "geography paper",
-    ],
-
-    "civics": [
-        "civics",
-        "civics paper",
-    ],
-
-    "economics": [
-        "economics",
-        "eco",
-        "economics paper",
     ],
 }
 
 
 # =========================================================
-# GENERAL SYNONYM NORMALIZATION
-#
-# Important:
-# This does NOT need to cover every sentence.
-# Embeddings handle unseen paraphrases.
+# SUBJECT NORMALIZATION
+# =========================================================
+
+SUBJECT_NORMALIZATION = {
+
+    "math": "mathematics",
+    "maths": "mathematics",
+    "math paper": "mathematics",
+    "maths paper": "mathematics",
+
+    "sci": "science",
+
+    "social studies": "social science",
+    "social sciences": "social science",
+    "sst": "social science",
+    "s.s.t": "social science",
+
+    "computer": "computer science",
+    "computers": "computer science",
+    "computer studies": "computer science",
+    "computer subject": "computer science",
+    "computer science subject": "computer science",
+    "cs": "computer science",
+    "c.s.": "computer science",
+
+    "eng": "english",
+
+    "hin": "hindi",
+
+    "phy": "physics",
+
+    "chem": "chemistry",
+
+    "bio": "biology",
+}
+
+
+def normalize_subject(subject):
+    """
+    Convert user/LLM subject names to one canonical value.
+
+    Examples:
+        math -> mathematics
+        maths -> mathematics
+        sci -> science
+        computer -> computer science
+        cs -> computer science
+        computer science -> computer science
+    """
+
+    if subject is None:
+        return None
+
+    value = str(subject).lower().strip()
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value
+    )
+
+    return SUBJECT_NORMALIZATION.get(
+        value,
+        value
+    )
+
+
+# =========================================================
+# NORMALIZATION RULES
 # =========================================================
 
 NORMALIZATION_RULES = {
 
-    # -----------------------------------------------------
+    # -------------------------
     # MARKS
-    # -----------------------------------------------------
+    # -------------------------
 
     "scores": " marks ",
     "score": " marks ",
     "scored": " marks ",
-    "scoring": " marks ",
-    "marks obtained": " marks ",
     "grades": " marks ",
     "grade": " marks ",
     "results": " marks ",
     "result": " marks ",
     "percentage": " marks ",
     "percent": " marks ",
-    "points": " marks ",
 
-    # -----------------------------------------------------
+    # -------------------------
     # ASSIGNMENTS
-    # -----------------------------------------------------
+    # -------------------------
 
     "homeworks": " assignment ",
     "homework": " assignment ",
@@ -332,29 +349,24 @@ NORMALIZATION_RULES = {
     "project": " assignment ",
     "worksheets": " assignment ",
     "worksheet": " assignment ",
-    "coursework": " assignment ",
 
-    # -----------------------------------------------------
+    # -------------------------
     # TIMETABLE
-    # -----------------------------------------------------
+    # -------------------------
 
     "time table": " timetable ",
     "class schedule": " timetable ",
-    "class schedules": " timetable ",
     "school schedule": " timetable ",
-    "school schedules": " timetable ",
     "daily schedule": " timetable ",
-    "daily routine": " timetable ",
     "period schedule": " timetable ",
-    "period schedules": " timetable ",
-    "lecture schedule": " timetable ",
     "class timings": " timetable ",
     "class timing": " timetable ",
 
-    # -----------------------------------------------------
+    # -------------------------
     # ATTENDANCE
-    # -----------------------------------------------------
+    # -------------------------
 
+    "attendence": " attendance ",
     "presence rate": " attendance ",
     "present rate": " attendance ",
     "attendance rate": " attendance ",
@@ -362,11 +374,10 @@ NORMALIZATION_RULES = {
     "missed classes": " absent ",
     "missed class": " absent ",
     "missed school": " absent ",
-    "miss school": " absent ",
 
-    # -----------------------------------------------------
+    # -------------------------
     # EXAMS
-    # -----------------------------------------------------
+    # -------------------------
 
     "mid-term": " midterm ",
     "mid term": " midterm ",
@@ -375,25 +386,61 @@ NORMALIZATION_RULES = {
 
     "final examination": " final exam ",
     "finals": " final exam ",
+
     "annual examination": " annual exam ",
     "annuals": " annual exam ",
 
-    "half-yearly": " half yearly exam ",
-    "half yearly examination": " half yearly exam ",
-
-    # -----------------------------------------------------
-    # INFORMAL LANGUAGE
-    # -----------------------------------------------------
+    # -------------------------
+    # INFORMAL
+    # -------------------------
 
     "pls": " please ",
     "plz": " please ",
-    "ur": " your ",
-    "u": " you ",
 }
 
 
+def normalize_for_routing(question: str) -> str:
+
+    q = (
+        question
+        or ""
+    ).lower().strip()
+
+    q = q.replace(
+        "’",
+        "'"
+    )
+
+    q = re.sub(
+        r"[!?.,;:]+",
+        " ",
+        q
+    )
+
+    # Longest phrases first
+    rules = sorted(
+        NORMALIZATION_RULES.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    for old, new in rules:
+        q = q.replace(
+            old,
+            new
+        )
+
+    q = re.sub(
+        r"\s+",
+        " ",
+        q
+    )
+
+    return q.strip()
+
+
 # =========================================================
-# PERFORMANCE SYNONYMS
+# PERFORMANCE PATTERNS
 # =========================================================
 
 PERFORMANCE_PATTERNS = {
@@ -408,32 +455,17 @@ PERFORMANCE_PATTERNS = {
         "performed best",
         "top subject",
         "top performing subject",
-        "top scoring subject",
         "highest subject",
         "highest scoring subject",
         "subject with highest marks",
         "subject with highest score",
-        "subject with best marks",
-        "subject with best score",
         "subject where i scored highest",
-        "subject where i got highest",
-        "subject where i perform best",
-        "subject i am best at",
         "which subject is best",
         "which subject is my best",
-        "which subject am i best at",
         "which subject is strongest",
-        "which subject am i strongest in",
         "where am i strongest",
-        "what am i strongest in",
         "my strongest subject",
         "my best subject",
-        "my highest scoring subject",
-        "my highest marks subject",
-        "highest scoring subject",
-        "highest marks subject",
-        "top scoring subject",
-        "best performing subject",
     ],
 
     "lowest_subject": [
@@ -446,22 +478,13 @@ PERFORMANCE_PATTERNS = {
         "performed worst",
         "lowest subject",
         "lowest scoring subject",
-        "lowest performing subject",
         "subject with lowest marks",
         "subject with lowest score",
-        "subject with worst marks",
-        "subject with worst score",
-        "subject where i scored lowest",
-        "subject where i got lowest",
-        "subject where i perform worst",
-        "subject i am weak in",
         "which subject needs improvement",
         "which subject should i improve",
         "where am i weakest",
-        "what am i weakest in",
         "my weakest subject",
         "my worst subject",
-        "my lowest scoring subject",
     ],
 
     "trend": [
@@ -481,30 +504,23 @@ PERFORMANCE_PATTERNS = {
         "have i improved",
         "did i improve",
         "how have i improved",
-        "growth in marks",
-        "growth in performance",
-        "progressing",
+        "show my performance trend",
     ],
 
     "exam_comparison": [
         "compare exams",
-        "compare examination",
-        "compare examinations",
         "compare my exams",
         "compare my marks",
         "compare my scores",
-        "compare my results",
         "exam comparison",
         "difference between exams",
-        "difference between examinations",
         "mid term vs final",
         "midterm vs final",
         "final vs mid term",
         "final compared to mid term",
-        "compare performance",
         "compare my performance",
-        "how did i improve",
         "how much did i improve",
+        "how did i improve",
     ],
 
     "overall_performance": [
@@ -530,7 +546,7 @@ PERFORMANCE_PATTERNS = {
 
 
 # =========================================================
-# ATTENDANCE SYNONYMS
+# ATTENDANCE WORDS
 # =========================================================
 
 ATTENDANCE_WORDS = [
@@ -543,19 +559,16 @@ ATTENDANCE_WORDS = [
     "absence",
     "absentee",
     "absenteeism",
-    "missing school",
     "missed school",
     "miss school",
     "missed class",
     "miss class",
-    "late",
-    "lateness",
     "late attendance",
 ]
 
 
 # =========================================================
-# ASSIGNMENT SYNONYMS
+# ASSIGNMENT WORDS
 # =========================================================
 
 ASSIGNMENT_WORDS = [
@@ -575,13 +588,11 @@ ASSIGNMENT_WORDS = [
     "coursework",
     "submission",
     "submissions",
-    "work to do",
-    "work pending",
 ]
 
 
 # =========================================================
-# TIMETABLE SYNONYMS
+# TIMETABLE WORDS
 # =========================================================
 
 TIMETABLE_WORDS = [
@@ -595,10 +606,8 @@ TIMETABLE_WORDS = [
     "class timings",
     "class schedule",
     "school schedule",
-    "lecture",
-    "lectures",
     "next class",
-    "next lecture",
+    "next period",
     "today's classes",
     "tomorrow's classes",
     "what class do i have",
@@ -608,7 +617,7 @@ TIMETABLE_WORDS = [
 
 
 # =========================================================
-# EXAM SYNONYMS
+# EXAM WORDS
 # =========================================================
 
 EXAM_WORDS = [
@@ -633,7 +642,7 @@ EXAM_WORDS = [
 
 
 # =========================================================
-# RAG KEYWORDS
+# RAG WORDS
 # =========================================================
 
 RAG_POLICY_WORDS = [
@@ -645,45 +654,24 @@ RAG_POLICY_WORDS = [
     "regulations",
     "guideline",
     "guidelines",
-    "requirement",
-    "requirements",
-    "allowed",
-    "not allowed",
-    "permission",
     "school policy",
     "school rule",
     "school rules",
-    "attendance requirement",
-    "attendance criteria",
-    "minimum attendance",
-    "eligibility criteria",
+    "leave policy",
+    "attendance policy",
 ]
 
 
 RAG_LIBRARY_WORDS = [
-    "library",
-    "library rules",
     "library policy",
+    "library rules",
     "library fine",
     "library fines",
-    "book fine",
     "book return policy",
     "borrow book",
-    "borrow a book",
     "borrow books",
     "library membership",
     "library timing",
-]
-
-
-RAG_FEE_WORDS = [
-    "fee policy",
-    "fees policy",
-    "fee structure",
-    "fees structure",
-    "refund policy",
-    "fee refund policy",
-    "payment policy",
 ]
 
 
@@ -698,7 +686,6 @@ RAG_ANNOUNCEMENT_WORDS = [
     "school notice",
     "school announcement",
     "school announcements",
-    "news from school",
 ]
 
 
@@ -706,7 +693,10 @@ RAG_ANNOUNCEMENT_WORDS = [
 # HELPERS
 # =========================================================
 
-def contains_any(text: str, phrases) -> bool:
+def contains_any(
+    text: str,
+    phrases
+) -> bool:
 
     if not text:
         return False
@@ -717,77 +707,28 @@ def contains_any(text: str, phrases) -> bool:
 
         phrase = phrase.lower().strip()
 
-        if not phrase:
-            continue
-
-        if phrase in text:
+        if phrase and phrase in text:
             return True
 
     return False
 
 
-def regex_any(text: str, patterns) -> bool:
+def regex_any(
+    text: str,
+    patterns
+) -> bool:
 
     if not text:
         return False
 
-    for pattern in patterns:
-
-        if re.search(
+    return any(
+        re.search(
             pattern,
             text,
             re.IGNORECASE
-        ):
-            return True
-
-    return False
-
-
-def normalize_for_routing(question: str) -> str:
-    """
-    Normalize only for routing.
-
-    Original question is NEVER modified for SQL generation.
-    """
-
-    q = (
-        question
-        or ""
-    ).lower().strip()
-
-    # Normalize punctuation first.
-    q = q.replace(
-        "’",
-        "'"
-    )
-
-    q = re.sub(
-        r"[!?.,;:]+",
-        " ",
-        q
-    )
-
-    # Longer phrases first.
-    rules = sorted(
-        NORMALIZATION_RULES.items(),
-        key=lambda item: len(item[0]),
-        reverse=True
-    )
-
-    for old, new in rules:
-
-        q = q.replace(
-            old,
-            new
         )
-
-    q = re.sub(
-        r"\s+",
-        " ",
-        q
+        for pattern in patterns
     )
-
-    return q.strip()
 
 
 def make_plan(
@@ -821,37 +762,6 @@ def make_plan(
 
 
 # =========================================================
-# SUBJECT NORMALIZATION
-# =========================================================
-
-SUBJECT_NORMALIZATION = {
-    "math": "mathematics",
-    "maths": "mathematics",
-    "sci": "science",
-    "social studies": "social science",
-    "social sciences": "social science",
-    "sst": "social science",
-    "computer": "computer science",
-    "computers": "computer science",
-    "computer studies": "computer science",
-    "comp science": "computer science",
-    "cs": "computer science",
-    "c.s.": "computer science",
-    "eng": "english",
-    "hin": "hindi",
-    "phy": "physics",
-    "chem": "chemistry",
-    "bio": "biology",
-}
-
-def normalize_subject(subject):
-    if not subject:
-        return None
-    value = str(subject).lower().strip()
-    return SUBJECT_NORMALIZATION.get(value, value)
-
-
-# =========================================================
 # SUBJECT DETECTION
 # =========================================================
 
@@ -872,7 +782,8 @@ def detect_subject(q: str):
 
             if re.search(
                 pattern,
-                q
+                q,
+                re.IGNORECASE
             ):
 
                 candidates.append(
@@ -890,7 +801,9 @@ def detect_subject(q: str):
         reverse=True
     )
 
-    return normalize_subject(candidates[0][1])
+    return normalize_subject(
+        candidates[0][1]
+    )
 
 
 # =========================================================
@@ -908,7 +821,6 @@ def detect_exam_constraint(q: str):
         r"\bmid-year\b",
         r"\bhalf yearly\b",
         r"\bhalf-yearly\b",
-        r"\bhalf yearly exam\b",
         r"\bterm 1\b",
         r"\bfirst term\b",
         r"\bfirst semester\b",
@@ -971,71 +883,158 @@ def detect_exam_constraint(q: str):
 
 
 # =========================================================
+# MONTH/YEAR EXTRACTION
+# =========================================================
+
+def extract_month_year(q: str):
+
+    if not q:
+        return {
+            "month": None,
+            "year": None
+        }
+
+    q = q.lower()
+
+    now = datetime.now()
+
+    # -------------------------
+    # THIS MONTH
+    # -------------------------
+
+    if (
+        "this month" in q
+        or "current month" in q
+    ):
+
+        return {
+            "month": now.month,
+            "year": now.year
+        }
+
+    # -------------------------
+    # LAST MONTH
+    # -------------------------
+
+    if (
+        "last month" in q
+        or "previous month" in q
+    ):
+
+        if now.month == 1:
+
+            return {
+                "month": 12,
+                "year": now.year - 1
+            }
+
+        return {
+            "month": now.month - 1,
+            "year": now.year
+        }
+
+    # -------------------------
+    # MONTH + YEAR
+    # -------------------------
+
+    month_pattern = "|".join(
+        re.escape(x)
+        for x in MONTH_MAP.keys()
+    )
+
+    match = re.search(
+        rf"\b({month_pattern})\s+((?:19|20)\d{{2}})\b",
+        q,
+        re.IGNORECASE
+    )
+
+    if match:
+
+        month_name = match.group(1).lower()
+
+        return {
+            "month": MONTH_MAP[month_name],
+            "year": int(match.group(2))
+        }
+
+    # -------------------------
+    # YEAR + MONTH
+    # -------------------------
+
+    match = re.search(
+        rf"\b((?:19|20)\d{{2}})\s+({month_pattern})\b",
+        q,
+        re.IGNORECASE
+    )
+
+    if match:
+
+        month_name = match.group(2).lower()
+
+        return {
+            "month": MONTH_MAP[month_name],
+            "year": int(match.group(1))
+        }
+
+    # -------------------------
+    # MONTH ONLY
+    # -------------------------
+
+    for month_name, number in MONTH_MAP.items():
+
+        if re.search(
+            rf"\b{re.escape(month_name)}\b",
+            q
+        ):
+
+            return {
+                "month": number,
+                "year": None
+            }
+
+    return {
+        "month": None,
+        "year": None
+    }
+
+
+# =========================================================
 # RAG DETECTION
 # =========================================================
 
 def detect_rag_intent(q: str):
 
-    # -----------------------------------------------------
-    # Library
-    # -----------------------------------------------------
-
     if contains_any(
         q,
         RAG_LIBRARY_WORDS
     ):
-
         return "library"
-
-    # -----------------------------------------------------
-    # Fees
-    # -----------------------------------------------------
-
-    if contains_any(
-        q,
-        RAG_FEE_WORDS
-    ):
-
-        return "fees"
-
-    # -----------------------------------------------------
-    # Announcements
-    # -----------------------------------------------------
 
     if contains_any(
         q,
         RAG_ANNOUNCEMENT_WORDS
     ):
-
         return "announcement"
-
-    # -----------------------------------------------------
-    # Policy
-    # -----------------------------------------------------
 
     if contains_any(
         q,
         RAG_POLICY_WORDS
     ):
 
-        # Personal attendance calculation
-        # should remain SQL.
+        # Personal attendance should remain SQL.
+        if contains_any(
+            q,
+            [
+                "my attendance",
+                "my absence",
+                "my absences",
+                "my present days",
+                "my absent days",
+            ]
+        ):
+            return None
 
-        personal_attendance = (
-            contains_any(
-                q,
-                [
-                    "my attendance",
-                    "my absence",
-                    "my absences",
-                    "my present days",
-                    "my absent days",
-                ]
-            )
-        )
-
-        if not personal_attendance:
-            return "school_policy"
+        return "school_policy"
 
     return None
 
@@ -1044,7 +1043,7 @@ def detect_rag_intent(q: str):
 # EXAM SCHEDULE DETECTION
 # =========================================================
 
-def is_exam_schedule_query(q: str) -> bool:
+def is_exam_schedule_query(q: str):
 
     if not contains_any(
         q,
@@ -1052,46 +1051,38 @@ def is_exam_schedule_query(q: str) -> bool:
     ):
         return False
 
-    schedule_words = [
-        "when",
-        "date",
-        "dates",
-        "schedule",
-        "start",
-        "starts",
-        "begin",
-        "begins",
-        "end",
-        "ends",
-        "timing",
-        "calendar",
-        "timetable",
-        "when is",
-        "when are",
-    ]
-
-    # If asking marks, it is not a schedule query.
-    marks_words = [
-        "marks",
-        "score",
-        "scores",
-        "scored",
-        "grade",
-        "result",
-        "percentage",
-        "obtained",
-        "got",
-    ]
-
     if contains_any(
         q,
-        marks_words
+        [
+            "marks",
+            "score",
+            "scores",
+            "scored",
+            "grade",
+            "result",
+            "percentage",
+            "obtained",
+            "got",
+        ]
     ):
         return False
 
     return contains_any(
         q,
-        schedule_words
+        [
+            "when",
+            "date",
+            "dates",
+            "schedule",
+            "start",
+            "starts",
+            "begin",
+            "begins",
+            "end",
+            "ends",
+            "timing",
+            "calendar",
+        ]
     )
 
 
@@ -1107,9 +1098,25 @@ def detect_attendance_plan(q: str):
     ):
         return None
 
-    # -----------------------------------------------------
+    month_info = extract_month_year(q)
+
+    constraints = {}
+
+    if month_info["month"] is not None:
+
+        constraints["month"] = (
+            month_info["month"]
+        )
+
+    if month_info["year"] is not None:
+
+        constraints["year"] = (
+            month_info["year"]
+        )
+
+    # =====================================================
     # TREND
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1121,6 +1128,8 @@ def detect_attendance_plan(q: str):
             "attendance getting better",
             "attendance getting worse",
             "attendance progress",
+            "is my attendance improving",
+            "how has my attendance changed",
         ]
     ):
 
@@ -1129,14 +1138,15 @@ def detect_attendance_plan(q: str):
             query_type="analysis",
             operation="analyze",
             metric="attendance_trend",
+            constraints=constraints,
             analysis=True,
             confidence=1.0,
             reasoning="Detected attendance trend query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # ELIGIBILITY
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1159,14 +1169,15 @@ def detect_attendance_plan(q: str):
             query_type="analysis",
             operation="analyze",
             metric="attendance_eligibility",
+            constraints=constraints,
             analysis=True,
             confidence=1.0,
             reasoning="Detected attendance eligibility query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # ABSENT DATES
-    # -----------------------------------------------------
+    # =====================================================
 
     if regex_any(
         q,
@@ -1184,23 +1195,22 @@ def detect_attendance_plan(q: str):
             r"\bmissed days\b",
             r"\bdays i missed\b",
             r"\bdays i was absent\b",
-            r"\bwhich days was i absent\b",
         ]
     ):
+
+        constraints["attendance"] = "absent"
 
         return make_plan(
             "attendance",
             metric="absent_dates",
-            constraints={
-                "attendance": "absent"
-            },
+            constraints=constraints,
             confidence=1.0,
             reasoning="Detected absent-date query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # PRESENT DATES
-    # -----------------------------------------------------
+    # =====================================================
 
     if regex_any(
         q,
@@ -1215,19 +1225,19 @@ def detect_attendance_plan(q: str):
         ]
     ):
 
+        constraints["attendance"] = "present"
+
         return make_plan(
             "attendance",
             metric="present_dates",
-            constraints={
-                "attendance": "present"
-            },
+            constraints=constraints,
             confidence=1.0,
             reasoning="Detected present-date query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # ABSENT COUNT
-    # -----------------------------------------------------
+    # =====================================================
 
     if regex_any(
         q,
@@ -1239,6 +1249,7 @@ def detect_attendance_plan(q: str):
             r"total absent days",
             r"count.*absence",
             r"count.*absent",
+            r"how many days was i absent",
         ]
     ):
 
@@ -1247,14 +1258,15 @@ def detect_attendance_plan(q: str):
             query_type="analysis",
             operation="analyze",
             metric="absent_days",
+            constraints=constraints,
             analysis=True,
             confidence=1.0,
             reasoning="Detected absence-count query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # PRESENT COUNT
-    # -----------------------------------------------------
+    # =====================================================
 
     if regex_any(
         q,
@@ -1266,6 +1278,7 @@ def detect_attendance_plan(q: str):
             r"count.*present days",
             r"days have i attended",
             r"number of days i attended",
+            r"how many days did i attend",
         ]
     ):
 
@@ -1274,14 +1287,49 @@ def detect_attendance_plan(q: str):
             query_type="analysis",
             operation="analyze",
             metric="present_days",
+            constraints=constraints,
             analysis=True,
             confidence=1.0,
             reasoning="Detected present-day count query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
+    # MONTHLY ATTENDANCE
+    # =====================================================
+
+    if (
+        month_info["month"] is not None
+        or contains_any(
+            q,
+            [
+                "monthly attendance",
+                "attendance for the month",
+                "attendance for this month",
+                "attendance this month",
+                "show my attendance",
+                "show attendance",
+                "attendance record",
+                "attendance records",
+            ]
+        )
+    ):
+
+        return make_plan(
+            "attendance",
+            query_type="information",
+            operation="fetch",
+            metric="monthly_attendance",
+            constraints=constraints,
+            confidence=1.0,
+            reasoning=(
+                "Detected monthly attendance "
+                "record query."
+            )
+        )
+
+    # =====================================================
     # PERCENTAGE
-    # -----------------------------------------------------
+    # =====================================================
 
     if regex_any(
         q,
@@ -1302,21 +1350,21 @@ def detect_attendance_plan(q: str):
             query_type="analysis",
             operation="analyze",
             metric="attendance_percentage",
+            constraints=constraints,
             analysis=True,
             confidence=1.0,
             reasoning="Detected attendance-percentage query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # SUMMARY
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
         [
             "attendance summary",
             "attendance report",
-            "attendance record",
             "attendance details",
             "present and absent",
             "present absent",
@@ -1331,14 +1379,15 @@ def detect_attendance_plan(q: str):
             query_type="analysis",
             operation="analyze",
             metric="attendance_summary",
+            constraints=constraints,
             analysis=True,
             confidence=1.0,
             reasoning="Detected attendance-summary query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # COMPARISON
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1358,15 +1407,16 @@ def detect_attendance_plan(q: str):
             query_type="comparison",
             operation="compare",
             metric="attendance_comparison",
+            constraints=constraints,
             analysis=True,
             comparison=True,
             confidence=1.0,
             reasoning="Detected attendance comparison."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # LATE
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1382,24 +1432,57 @@ def detect_attendance_plan(q: str):
         ]
     ):
 
+        constraints["attendance"] = "late"
+
         return make_plan(
             "attendance",
             metric="late_days",
-            constraints={
-                "attendance": "late"
-            },
+            constraints=constraints,
             confidence=1.0,
             reasoning="Detected late-attendance query."
         )
 
-    # -----------------------------------------------------
-    # GENERAL ATTENDANCE
-    # -----------------------------------------------------
+    # =====================================================
+    # DEFAULT ATTENDANCE
+    # =====================================================
+
+    # IMPORTANT:
+    # "What is my attendance?" -> percentage
+    #
+    # "Show my attendance" -> monthly records
+
+    if regex_any(
+        q,
+        [
+            r"\bwhat is my attendance\b",
+            r"\bhow much attendance do i have\b",
+            r"\bwhat percentage.*attendance\b",
+            r"\bmy attendance percentage\b",
+        ]
+    ):
+
+        return make_plan(
+            "attendance",
+            query_type="analysis",
+            operation="analyze",
+            metric="attendance_percentage",
+            constraints=constraints,
+            analysis=True,
+            confidence=1.0,
+            reasoning="Detected attendance-percentage query."
+        )
 
     return make_plan(
         "attendance",
+        query_type="information",
+        operation="fetch",
+        metric="monthly_attendance",
+        constraints=constraints,
         confidence=0.95,
-        reasoning="Detected general attendance query."
+        reasoning=(
+            "Detected general attendance query; "
+            "defaulting to monthly attendance records."
+        )
     )
 
 
@@ -1409,14 +1492,23 @@ def detect_attendance_plan(q: str):
 
 def detect_performance_plan(q: str):
 
-    # -----------------------------------------------------
-    # HIGHEST / LOWEST SCORE
-    # -----------------------------------------------------
-    if contains_any(q, [
-        "highest score", "highest marks", "maximum score",
-        "maximum marks", "best score", "best marks",
-        "top score", "top marks", "most marks",
-    ]):
+    # =====================================================
+    # HIGHEST SCORE
+    # =====================================================
+
+    if contains_any(
+        q,
+        [
+            "highest score",
+            "highest marks",
+            "maximum score",
+            "maximum marks",
+            "top score",
+            "top marks",
+            "most marks",
+        ]
+    ):
+
         return make_plan(
             "marks",
             metric="highest_score",
@@ -1427,11 +1519,21 @@ def detect_performance_plan(q: str):
             reasoning="Detected highest-score query."
         )
 
-    if contains_any(q, [
-        "lowest score", "lowest marks", "minimum score",
-        "minimum marks", "worst score", "worst marks",
-        "least marks",
-    ]):
+    # =====================================================
+    # LOWEST SCORE
+    # =====================================================
+
+    if contains_any(
+        q,
+        [
+            "lowest score",
+            "lowest marks",
+            "minimum score",
+            "minimum marks",
+            "least marks",
+        ]
+    ):
+
         return make_plan(
             "marks",
             metric="lowest_score",
@@ -1442,39 +1544,39 @@ def detect_performance_plan(q: str):
             reasoning="Detected lowest-score query."
         )
 
-    # -----------------------------------------------------
-    # HIGHEST SUBJECT
-    # -----------------------------------------------------
+    # =====================================================
+    # SPECIFIC SUBJECT CHECK
+    # =====================================================
+
+    specific_subject = detect_subject(q)
+
+    specific_subject_query = (
+        specific_subject is not None
+        and regex_any(
+            q,
+            [
+                r"\bwhat.*marks.*in\b",
+                r"\bwhat.*score.*in\b",
+                r"\bhow much.*in\b",
+                r"\bmarks.*for\b",
+                r"\bscore.*for\b",
+                r"\bhow did i do in\b",
+                r"\bwhat did i get in\b",
+                r"\bwhat did i score in\b",
+            ]
+        )
+    )
+
+    # =====================================================
+    # STRONGEST SUBJECT
+    # =====================================================
 
     if contains_any(
         q,
-        PERFORMANCE_PATTERNS["highest_subject"]
+        PERFORMANCE_PATTERNS[
+            "highest_subject"
+        ]
     ):
-
-        # A specific-subject question such as:
-        #
-        # "What score did I get in Computer Science?"
-        #
-        # should remain a marks query.
-
-        specific_subject = detect_subject(q)
-
-        specific_subject_query = (
-            specific_subject is not None
-            and regex_any(
-                q,
-                [
-                    r"\bwhat.*marks.*in\b",
-                    r"\bwhat.*score.*in\b",
-                    r"\bhow much.*in\b",
-                    r"\bmarks.*for\b",
-                    r"\bscore.*for\b",
-                    r"\bhow did i do in\b",
-                    r"\bwhat did i get in\b",
-                    r"\bwhat did i score in\b",
-                ]
-            )
-        )
 
         if not specific_subject_query:
 
@@ -1492,32 +1594,16 @@ def detect_performance_plan(q: str):
                 )
             )
 
-    # -----------------------------------------------------
-    # LOWEST SUBJECT
-    # -----------------------------------------------------
+    # =====================================================
+    # WEAKEST SUBJECT
+    # =====================================================
 
     if contains_any(
         q,
-        PERFORMANCE_PATTERNS["lowest_subject"]
+        PERFORMANCE_PATTERNS[
+            "lowest_subject"
+        ]
     ):
-
-        specific_subject = detect_subject(q)
-
-        specific_subject_query = (
-            specific_subject is not None
-            and regex_any(
-                q,
-                [
-                    r"\bwhat.*marks.*in\b",
-                    r"\bwhat.*score.*in\b",
-                    r"\bhow much.*in\b",
-                    r"\bmarks.*for\b",
-                    r"\bscore.*for\b",
-                    r"\bhow did i do in\b",
-                    r"\bwhat did i get in\b",
-                ]
-            )
-        )
 
         if not specific_subject_query:
 
@@ -1535,29 +1621,9 @@ def detect_performance_plan(q: str):
                 )
             )
 
-    # -----------------------------------------------------
-    # OVERALL PERFORMANCE
-    # -----------------------------------------------------
-
-    if contains_any(
-        q,
-        PERFORMANCE_PATTERNS["overall_performance"]
-    ):
-
-        return make_plan(
-            "performance",
-            query_type="analysis",
-            operation="analyze",
-            source="sql",
-            metric="overall_performance",
-            analysis=True,
-            confidence=1.0,
-            reasoning="Detected overall-performance query."
-        )
-
-    # -----------------------------------------------------
+    # =====================================================
     # EXAM COMPARISON
-    # -----------------------------------------------------
+    # =====================================================
 
     exam_info = detect_exam_constraint(q)
 
@@ -1570,8 +1636,6 @@ def detect_performance_plan(q: str):
         "difference",
         "improvement",
         "improved",
-        "better",
-        "change",
     ]
 
     if (
@@ -1594,7 +1658,9 @@ def detect_performance_plan(q: str):
         constraints = {}
 
         if exam_info["exam"]:
-            constraints["exam"] = exam_info["exam"]
+            constraints["exam"] = (
+                exam_info["exam"]
+            )
 
         return make_plan(
             "performance",
@@ -1609,13 +1675,37 @@ def detect_performance_plan(q: str):
             reasoning="Detected exam-performance comparison."
         )
 
-    # -----------------------------------------------------
-    # PERFORMANCE TREND
-    # -----------------------------------------------------
+    # =====================================================
+    # OVERALL PERFORMANCE
+    # =====================================================
 
     if contains_any(
         q,
-        PERFORMANCE_PATTERNS["trend"]
+        PERFORMANCE_PATTERNS[
+            "overall_performance"
+        ]
+    ):
+
+        return make_plan(
+            "performance",
+            query_type="analysis",
+            operation="analyze",
+            source="sql",
+            metric="overall_performance",
+            analysis=True,
+            confidence=1.0,
+            reasoning="Detected overall-performance query."
+        )
+
+    # =====================================================
+    # TREND
+    # =====================================================
+
+    if contains_any(
+        q,
+        PERFORMANCE_PATTERNS[
+            "trend"
+        ]
     ):
 
         return make_plan(
@@ -1644,9 +1734,9 @@ def detect_assignment_plan(q: str):
     ):
         return None
 
-    # -----------------------------------------------------
+    # =====================================================
     # OVERDUE
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1658,7 +1748,6 @@ def detect_assignment_plan(q: str):
             "past due",
             "past deadline",
             "missed deadline",
-            "missed deadlines",
             "deadline passed",
         ]
     ):
@@ -1673,9 +1762,9 @@ def detect_assignment_plan(q: str):
             reasoning="Detected overdue-assignment query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # TODAY
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1699,9 +1788,9 @@ def detect_assignment_plan(q: str):
             reasoning="Detected assignments due today."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # TOMORROW
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1711,7 +1800,6 @@ def detect_assignment_plan(q: str):
             "assignments tomorrow",
             "homework tomorrow",
             "task tomorrow",
-            "work due tomorrow",
         ]
     ):
 
@@ -1725,42 +1813,9 @@ def detect_assignment_plan(q: str):
             reasoning="Detected assignments due tomorrow."
         )
 
-    # -----------------------------------------------------
-    # UPCOMING / PENDING
-    # -----------------------------------------------------
-
-    if contains_any(
-        q,
-        [
-            "upcoming assignment",
-            "upcoming assignments",
-            "next assignment",
-            "next assignments",
-            "what do i have to submit",
-            "what do i need to submit",
-            "what should i submit",
-            "pending assignment",
-            "pending assignments",
-            "assignments due",
-            "homework due",
-            "work i need to complete",
-            "work pending",
-        ]
-    ):
-
-        return make_plan(
-            "assignments",
-            constraints={
-                "assignment_scope": "upcoming"
-            },
-            metric="upcoming_assignments",
-            confidence=1.0,
-            reasoning="Detected upcoming/pending assignment query."
-        )
-
-    # -----------------------------------------------------
+    # =====================================================
     # COMPLETED
-    # -----------------------------------------------------
+    # =====================================================
 
     if contains_any(
         q,
@@ -1780,9 +1835,41 @@ def detect_assignment_plan(q: str):
             reasoning="Detected completed-assignment query."
         )
 
-    # -----------------------------------------------------
+    # =====================================================
+    # PENDING / UPCOMING
+    # =====================================================
+
+    if contains_any(
+        q,
+        [
+            "upcoming assignment",
+            "upcoming assignments",
+            "next assignment",
+            "next assignments",
+            "what do i have to submit",
+            "what do i need to submit",
+            "what should i submit",
+            "pending assignment",
+            "pending assignments",
+            "assignments due",
+            "homework due",
+            "work pending",
+        ]
+    ):
+
+        return make_plan(
+            "assignments",
+            constraints={
+                "assignment_scope": "upcoming"
+            },
+            metric="upcoming_assignments",
+            confidence=1.0,
+            reasoning="Detected pending/upcoming assignment query."
+        )
+
+    # =====================================================
     # DEFAULT
-    # -----------------------------------------------------
+    # =====================================================
 
     return make_plan(
         "assignments",
@@ -1793,7 +1880,7 @@ def detect_assignment_plan(q: str):
 
 
 # =========================================================
-# TIMETABLE DETECTION
+# TIMETABLE
 # =========================================================
 
 def detect_timetable_plan(q: str):
@@ -1804,15 +1891,10 @@ def detect_timetable_plan(q: str):
     ):
         return None
 
-    # Exam schedule must go to exams.
     if is_exam_schedule_query(q):
         return None
 
     constraints = {}
-
-    # -----------------------------------------------------
-    # DAY
-    # -----------------------------------------------------
 
     for day in WEEKDAYS:
 
@@ -1838,18 +1920,19 @@ def detect_timetable_plan(q: str):
             "next lecture",
         ]
     ):
+
         constraints["day"] = "next"
 
     return make_plan(
         "timetable",
         constraints=constraints,
         confidence=1.0,
-        reasoning="Detected timetable/class-schedule query."
+        reasoning="Detected timetable query."
     )
 
 
 # =========================================================
-# MARKS DETECTION
+# MARKS
 # =========================================================
 
 def detect_marks_plan(q: str):
@@ -1882,7 +1965,7 @@ def detect_marks_plan(q: str):
     ):
         return None
 
-    # Do not steal performance queries.
+    # Performance gets priority.
     performance_plan = detect_performance_plan(q)
 
     if performance_plan:
@@ -1893,14 +1976,18 @@ def detect_marks_plan(q: str):
     exam_info = detect_exam_constraint(q)
 
     if exam_info["exam"]:
-        constraints["exam"] = exam_info["exam"]
+        constraints["exam"] = (
+            exam_info["exam"]
+        )
 
     context = {}
 
     subject = detect_subject(q)
 
     if subject:
-        context["subject"] = subject
+        context["subject"] = normalize_subject(
+            subject
+        )
 
     return make_plan(
         "marks",
@@ -1912,29 +1999,23 @@ def detect_marks_plan(q: str):
 
 
 # =========================================================
-# TEACHER DETECTION
+# TEACHER
 # =========================================================
 
 def detect_teacher_plan(q: str):
 
-    teacher_words = [
-        "teacher",
-        "teachers",
-        "who teaches",
-        "who is my teacher",
-        "who teaches me",
-        "subject teacher",
-        "subject instructor",
-        "instructor",
-        "faculty",
-        "sir",
-        "madam",
-        "ma'am",
-    ]
-
     if not contains_any(
         q,
-        teacher_words
+        [
+            "teacher",
+            "teachers",
+            "who teaches",
+            "who is my teacher",
+            "who teaches me",
+            "subject teacher",
+            "instructor",
+            "faculty",
+        ]
     ):
         return None
 
@@ -1943,40 +2024,41 @@ def detect_teacher_plan(q: str):
     subject = detect_subject(q)
 
     if subject:
-        context["subject"] = subject
+        context["subject"] = normalize_subject(
+            subject
+        )
 
     return make_plan(
         "teacher",
         context=context,
         confidence=1.0,
-        reasoning="Detected teacher/faculty query."
+        reasoning="Detected teacher query."
     )
 
 
 # =========================================================
-# PROFILE DETECTION
+# PROFILE
 # =========================================================
 
 def detect_profile_plan(q: str):
 
-    profile_words = [
-        "my profile",
-        "my details",
-        "my information",
-        "my student details",
-        "my student information",
-        "my class",
-        "which class am i in",
-        "what class am i in",
-        "my section",
-        "my roll number",
-        "my admission",
-        "my personal details",
-    ]
-
     if not contains_any(
         q,
-        profile_words
+        [
+            "my profile",
+            "my details",
+            "my information",
+            "my student details",
+            "my student information",
+            "my class",
+            "which class am i in",
+            "what class am i in",
+            "my section",
+            "my roll number",
+            "my admission number",
+            "my admission",
+            "my personal details",
+        ]
     ):
         return None
 
@@ -1988,16 +2070,31 @@ def detect_profile_plan(q: str):
 
 
 # =========================================================
-# PERSONAL FEE DETECTION
+# PERSONAL FEES
 # =========================================================
 
 def detect_fee_plan(q: str):
-    if not contains_any(q, [
-        "my fees", "my fee", "fee pending", "fees pending",
-        "fee paid", "fees paid", "have i paid my fees",
-        "how much fee is pending", "how much fees is pending",
-    ]):
+
+    if not contains_any(
+        q,
+        [
+            "my fees",
+            "my fee",
+            "fee pending",
+            "fees pending",
+            "fee paid",
+            "fees paid",
+            "have i paid my fees",
+            "how much fee is pending",
+            "how much fees is pending",
+        ]
+    ):
         return None
+
+    # IMPORTANT:
+    # These are PERSONAL student data.
+    # Therefore SQL, NOT RAG.
+
     return make_plan(
         "fees",
         source="sql",
@@ -2077,7 +2174,6 @@ def source_for_intent(intent: str):
     if intent in {
         "school_policy",
         "announcement",
-        "fees",
         "library",
     }:
         return "rag"
@@ -2091,6 +2187,7 @@ def source_for_intent(intent: str):
         "performance",
         "teacher",
         "profile",
+        "fees",
     }:
         return "sql"
 
@@ -2098,7 +2195,7 @@ def source_for_intent(intent: str):
 
 
 # =========================================================
-# NORMALIZE EXISTING LLM PLAN
+# NORMALIZE LLM PLAN
 # =========================================================
 
 def normalize_llm_plan(plan: dict):
@@ -2114,6 +2211,7 @@ def normalize_llm_plan(plan: dict):
             "intent",
             "unknown"
         )
+        or "unknown"
     ).lower().strip()
 
     metric = str(
@@ -2198,23 +2296,35 @@ def apply_common_constraints(
         {}
     )
 
-    # -----------------------------------------------------
-    # MONTH
-    # -----------------------------------------------------
+    # =====================================================
+    # MONTH + YEAR
+    # =====================================================
 
-    for month, number in MONTH_MAP.items():
+    if plan.get("intent") == "attendance":
 
-        if re.search(
-            rf"\b{month}\b",
-            q
+        month_info = extract_month_year(q)
+
+        if (
+            constraints.get("month") is None
+            and month_info["month"] is not None
         ):
 
-            constraints["month"] = number
-            break
+            constraints["month"] = (
+                month_info["month"]
+            )
 
-    # -----------------------------------------------------
-    # WEEKDAY
-    # -----------------------------------------------------
+        if (
+            constraints.get("year") is None
+            and month_info["year"] is not None
+        ):
+
+            constraints["year"] = (
+                month_info["year"]
+            )
+
+    # =====================================================
+    # TIMETABLE DAY
+    # =====================================================
 
     if plan.get("intent") == "timetable":
 
@@ -2244,9 +2354,9 @@ def apply_common_constraints(
         ):
             constraints["day"] = "next"
 
-    # -----------------------------------------------------
+    # =====================================================
     # EXAM
-    # -----------------------------------------------------
+    # =====================================================
 
     if plan.get("intent") in {
         "marks",
@@ -2275,27 +2385,6 @@ def validate_plan(
     plan: dict,
     question: str = ""
 ):
-    """
-    Final query router.
-
-    Priority:
-
-    1. RAG-specific deterministic rules
-    2. Exam schedule
-    3. Attendance
-    4. Performance
-    5. Assignments
-    6. Timetable
-    7. Teacher
-    8. Profile
-    9. Marks
-    10. LLM plan
-    11. Embedding router
-    12. Unknown
-
-    This prevents embeddings from incorrectly changing
-    high-confidence deterministic classifications.
-    """
 
     original_q = (
         question
@@ -2346,26 +2435,15 @@ def validate_plan(
 
     if rag_intent:
 
-        final_plan = make_plan(
+        return make_plan(
             rag_intent,
             source="rag",
             confidence=1.0,
             reasoning=(
                 "Deterministic RAG guardrail detected "
-                "a policy, announcement, fee, or "
-                "library query."
+                "a school policy, announcement, or library query."
             )
         )
-
-        print(
-            "\n===== FINAL PLAN ====="
-        )
-
-        print(
-            final_plan
-        )
-
-        return final_plan
 
     # =====================================================
     # 2. EXAM SCHEDULE
@@ -2373,80 +2451,65 @@ def validate_plan(
 
     if is_exam_schedule_query(q):
 
-        exam_info = detect_exam_constraint(
-            q
-        )
+        exam_info = detect_exam_constraint(q)
 
         constraints = {}
 
         if exam_info["exam"]:
+
             constraints["exam"] = (
                 exam_info["exam"]
             )
 
-        final_plan = make_plan(
+        return make_plan(
             "exams",
             source="sql",
             constraints=constraints,
             confidence=1.0,
-            reasoning=(
-                "Detected exam schedule/date/timing "
-                "query."
-            )
+            reasoning="Detected exam schedule query."
         )
-
-        return final_plan
 
     # =====================================================
     # 3. ATTENDANCE
     # =====================================================
 
-    attendance_plan = detect_attendance_plan(
-        q
-    )
+    attendance_plan = detect_attendance_plan(q)
 
     if attendance_plan:
 
-        attendance_plan = apply_common_constraints(
+        return apply_common_constraints(
             attendance_plan,
             q
         )
-
-        return attendance_plan
 
     # =====================================================
     # 4. PERFORMANCE
     # =====================================================
 
-    performance_plan = detect_performance_plan(
-        q
-    )
+    performance_plan = detect_performance_plan(q)
 
     if performance_plan:
 
-        performance_plan = apply_common_constraints(
+        return apply_common_constraints(
             performance_plan,
             q
         )
-
-        return performance_plan
 
     # =====================================================
     # 5. ASSIGNMENTS
     # =====================================================
 
-    assignment_plan = detect_assignment_plan(
-        q
-    )
+    assignment_plan = detect_assignment_plan(q)
 
     if assignment_plan:
 
-        assignment_plan = apply_common_constraints(
-            assignment_plan,
-            q
+        assignment_plan = (
+            apply_common_constraints(
+                assignment_plan,
+                q
+            )
         )
 
-        # Preserve subject information.
         subject = detect_subject(q)
 
         if subject:
@@ -2454,7 +2517,9 @@ def validate_plan(
             assignment_plan.setdefault(
                 "context",
                 {}
-            )["subject"] = subject
+            )["subject"] = normalize_subject(
+                subject
+            )
 
         return assignment_plan
 
@@ -2462,15 +2527,15 @@ def validate_plan(
     # 6. TIMETABLE
     # =====================================================
 
-    timetable_plan = detect_timetable_plan(
-        q
-    )
+    timetable_plan = detect_timetable_plan(q)
 
     if timetable_plan:
 
-        timetable_plan = apply_common_constraints(
-            timetable_plan,
-            q
+        timetable_plan = (
+            apply_common_constraints(
+                timetable_plan,
+                q
+            )
         )
 
         subject = detect_subject(q)
@@ -2480,7 +2545,9 @@ def validate_plan(
             timetable_plan.setdefault(
                 "context",
                 {}
-            )["subject"] = subject
+            )["subject"] = normalize_subject(
+                subject
+            )
 
         return timetable_plan
 
@@ -2488,9 +2555,7 @@ def validate_plan(
     # 7. TEACHER
     # =====================================================
 
-    teacher_plan = detect_teacher_plan(
-        q
-    )
+    teacher_plan = detect_teacher_plan(q)
 
     if teacher_plan:
 
@@ -2500,40 +2565,37 @@ def validate_plan(
     # 8. PROFILE
     # =====================================================
 
-    profile_plan = detect_profile_plan(
-        q
-    )
+    profile_plan = detect_profile_plan(q)
 
     if profile_plan:
 
         return profile_plan
 
     # =====================================================
-    # 9. PERSONAL FEES
+    # 9. FEES
     # =====================================================
+
     fee_plan = detect_fee_plan(q)
+
     if fee_plan:
+
         return fee_plan
 
     # =====================================================
     # 10. MARKS
     # =====================================================
 
-    marks_plan = detect_marks_plan(
-        q
-    )
+    marks_plan = detect_marks_plan(q)
 
     if marks_plan:
 
-        marks_plan = apply_common_constraints(
+        return apply_common_constraints(
             marks_plan,
             q
         )
 
-        return marks_plan
-
     # =====================================================
-    # 10. LLM PLAN
+    # 11. VALIDATED LLM PLAN
     # =====================================================
 
     llm_intent = plan.get(
@@ -2546,31 +2608,43 @@ def validate_plan(
         ""
     )
 
-    # -----------------------------------------------------
-    # Normalize common LLM metric mistakes
-    # -----------------------------------------------------
-
     metric_aliases = {
 
-        "highest": "highest_subject",
-        "highest_score": "highest_subject",
-        "highest_marks": "highest_subject",
-        "best": "highest_subject",
-        "strongest": "highest_subject",
-        "top": "highest_subject",
+        "highest":
+            "highest_subject",
 
-        "lowest": "lowest_subject",
-        "lowest_score": "lowest_subject",
-        "lowest_marks": "lowest_subject",
-        "weakest": "lowest_subject",
-        "worst": "lowest_subject",
+        "best":
+            "highest_subject",
 
-        "progress": "trend",
-        "improvement": "trend",
-        "performance_trend": "trend",
+        "strongest":
+            "highest_subject",
 
-        "compare": "exam_comparison",
-        "comparison": "exam_comparison",
+        "top":
+            "highest_subject",
+
+        "lowest":
+            "lowest_subject",
+
+        "weakest":
+            "lowest_subject",
+
+        "worst":
+            "lowest_subject",
+
+        "progress":
+            "trend",
+
+        "improvement":
+            "trend",
+
+        "performance_trend":
+            "trend",
+
+        "compare":
+            "exam_comparison",
+
+        "comparison":
+            "exam_comparison",
     }
 
     if llm_metric in metric_aliases:
@@ -2580,11 +2654,6 @@ def validate_plan(
         ]
 
         plan["metric"] = llm_metric
-
-    # -----------------------------------------------------
-    # If LLM already gave a valid high-confidence plan,
-    # retain it ONLY if deterministic routing found nothing.
-    # -----------------------------------------------------
 
     if (
         llm_intent in VALID_INTENTS
@@ -2598,7 +2667,6 @@ def validate_plan(
         ) >= 0.75
     ):
 
-        # Source must match the actual intent.
         plan["source"] = (
             source_for_intent(
                 llm_intent
@@ -2640,7 +2708,6 @@ def validate_plan(
             q
         )
 
-        # Add subject context when available.
         subject = detect_subject(q)
 
         if subject:
@@ -2648,20 +2715,14 @@ def validate_plan(
             plan.setdefault(
                 "context",
                 {}
-            )["subject"] = subject
-
-        print(
-            "\n===== USING VALIDATED LLM PLAN ====="
-        )
-
-        print(
-            plan
-        )
+            )["subject"] = normalize_subject(
+                subject
+            )
 
         return plan
 
     # =====================================================
-    # 11. SEMANTIC EMBEDDING ROUTER
+    # 12. SEMANTIC ROUTER
     # =====================================================
 
     (
@@ -2676,28 +2737,25 @@ def validate_plan(
         and semantic_score >= 0.55
     ):
 
-        intent = semantic_intent
-
-        source = source_for_intent(
-            intent
-        )
-
         final_plan = make_plan(
-            intent,
+            semantic_intent,
             query_type=(
                 "analysis"
-                if intent == "performance"
+                if semantic_intent == "performance"
                 else "information"
             ),
             operation=(
                 "analyze"
-                if intent == "performance"
+                if semantic_intent == "performance"
                 else "fetch"
             ),
-            source=source,
+            source=source_for_intent(
+                semantic_intent
+            ),
             confidence=semantic_score,
             analysis=(
-                intent == "performance"
+                semantic_intent
+                == "performance"
             ),
             reasoning=(
                 "Semantic embedding routing was used "
@@ -2705,15 +2763,10 @@ def validate_plan(
             )
         )
 
-        # -------------------------------------------------
-        # Semantic performance correction
-        # -------------------------------------------------
+        if semantic_intent == "performance":
 
-        if intent == "performance":
-
-            # Re-run deterministic metric detection.
-            metric_plan = detect_performance_plan(
-                q
+            metric_plan = (
+                detect_performance_plan(q)
             )
 
             if metric_plan:
@@ -2722,10 +2775,6 @@ def validate_plan(
                     metric_plan
                 )
 
-        # -------------------------------------------------
-        # Subject
-        # -------------------------------------------------
-
         subject = detect_subject(q)
 
         if subject:
@@ -2733,11 +2782,9 @@ def validate_plan(
             final_plan.setdefault(
                 "context",
                 {}
-            )["subject"] = subject
-
-        # -------------------------------------------------
-        # Constraints
-        # -------------------------------------------------
+            )["subject"] = normalize_subject(
+                subject
+            )
 
         final_plan = apply_common_constraints(
             final_plan,
@@ -2747,10 +2794,10 @@ def validate_plan(
         return final_plan
 
     # =====================================================
-    # 12. UNKNOWN
+    # 13. UNKNOWN
     # =====================================================
 
-    unknown_plan = make_plan(
+    return make_plan(
         "unknown",
         source="unknown",
         confidence=semantic_score,
@@ -2760,16 +2807,6 @@ def validate_plan(
         )
     )
 
-    print(
-        "\n===== UNKNOWN PLAN ====="
-    )
-
-    print(
-        unknown_plan
-    )
-
-    return unknown_plan
-
 
 # =========================================================
 # FALLBACK PLAN
@@ -2778,13 +2815,6 @@ def validate_plan(
 def build_fallback_plan(
     question: str
 ):
-    """
-    Used when the LLM planner completely fails.
-
-    This intentionally uses the same deterministic
-    validator instead of maintaining another separate
-    set of routing rules.
-    """
 
     print(
         "\nNo valid LLM plan found."
