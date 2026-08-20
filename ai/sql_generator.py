@@ -1412,37 +1412,54 @@ def generate_sql(
 
         if metric == "trend":
 
-            return f"""
-SELECT
-    sub.subject_name,
-    e.exam_name,
-    e.start_date,
-    m.marks_obtained,
-    m.maximum_marks
+            sql = f"""
+            SELECT
+            sub.subject_name,
 
-FROM marks m
+            MAX(
+                CASE
+                    WHEN LOWER(e.exam_name) LIKE '%mid%'
+                    THEN m.marks_obtained
+                END
+            ) AS mid_term_score,
 
-JOIN class_subjects cs
-    ON m.class_subject_id =
-       cs.class_subject_id
+            MAX(
+                CASE
+                    WHEN LOWER(e.exam_name) LIKE '%final%'
+                    THEN m.marks_obtained
+                END
+            ) AS final_score,
 
-JOIN subjects sub
-    ON cs.subject_id =
-       sub.subject_id
+            MAX(
+                CASE
+                    WHEN LOWER(e.exam_name) LIKE '%final%'
+                    THEN m.marks_obtained
+                END
+            )
+            -
+            MAX(
+                CASE
+                    WHEN LOWER(e.exam_name) LIKE '%mid%'
+                    THEN m.marks_obtained
+                END
+            ) AS improvement
 
-JOIN exams e
-    ON m.exam_id =
-       e.exam_id
+            FROM marks m
 
-WHERE m.student_id =
-      {student_id}
+            JOIN exams e
+            ON m.exam_id = e.exam_id
 
-{exam_filter}
+            JOIN subjects sub
+            ON m.subject_id = sub.subject_id
 
-ORDER BY
-    e.start_date ASC,
-    sub.subject_name ASC;
-""".strip()
+            WHERE m.student_id = {student_id}
+
+            GROUP BY
+            sub.subject_name
+
+            ORDER BY
+            sub.subject_name;
+            """.strip()
 
         # -------------------------------------------------
         # EXAM COMPARISON

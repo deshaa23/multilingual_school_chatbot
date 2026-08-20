@@ -512,7 +512,7 @@ def apply_constraints(
         sql = insert_before_order_by(
             sql,
             """
-            AND m.exam_id = (
+            AND e.exam_id = (
                 SELECT exam_id
                 FROM exams
                 ORDER BY start_date DESC

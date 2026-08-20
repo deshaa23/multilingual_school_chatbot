@@ -355,6 +355,139 @@ Do not return extra text.
     plan["metric"] = str(
         plan["metric"]
     ).lower().strip()
+    
+    # -----------------------------------------------------
+    # POLICY / GENERAL SCHOOL KNOWLEDGE OVERRIDE
+    # -----------------------------------------------------
+#
+# IMPORTANT:
+# "what is school attendance policy"
+# is NOT the student's attendance.
+#
+# It must go to RAG.
+#
+# Examples:
+#   what is school attendance policy -> RAG
+#   what are attendance rules -> RAG
+#   what is minimum attendance required -> RAG
+#
+# But:
+#   what is my attendance -> SQL
+#   what is my attendance percentage -> SQL
+# -----------------------------------------------------
+
+    question_lower = question.lower().strip()
+
+    policy_phrases = [
+    "attendance policy",
+    "attendance rule",
+    "attendance rules",
+    "attendance requirement",
+    "attendance requirements",
+    "minimum attendance",
+    "required attendance",
+    "school attendance",
+    "attendance guidelines",
+
+    "exam policy",
+    "exam rules",
+    "exam guidelines",
+    "examination policy",
+    "examination rules",
+
+    "assignment policy",
+    "assignment rules",
+    "assignment guidelines",
+
+    "school policy",
+    "school policies",
+    "school rules",
+    "school guidelines",
+
+    "submission policy",
+    "submission rules",
+    "submission guidelines"
+    ]
+
+    personal_attendance_phrases = [
+    "my attendance",
+    "my attendance record",
+    "my attendance records",
+    "my attendance percentage",
+    "my attendance status",
+    "my present days",
+    "my absent days",
+    "how many days was i present",
+    "how many days was i absent"
+    ]
+
+    is_policy_query = any(
+    phrase in question_lower
+    for phrase in policy_phrases
+    )
+
+    is_personal_attendance_query = any(
+    phrase in question_lower
+    for phrase in personal_attendance_phrases
+    )
+
+    if (
+    is_policy_query
+    and not is_personal_attendance_query
+    ):
+
+        print(
+            "\n===== POLICY OVERRIDE ====="
+        )
+
+        print(
+            "Policy/general school knowledge detected."
+        )
+
+        print(
+            "Original planner intent:",
+            plan["intent"]
+        )
+
+        print(
+            "Original planner source:",
+            plan["source"]
+        )
+
+        plan["intent"] = "rag"
+        plan["source"] = "rag"
+        plan["metric"] = "none"
+
+        print(
+            "Forced intent: rag"
+        )
+
+        print(
+            "Forced source: rag"
+        )
+
+        print(
+            "============================"
+        )
+
+    # -----------------------------------------------------
+    # DETECT LATEST / PREVIOUS EXAM
+    # -----------------------------------------------------
+
+    question_lower = question.lower()
+
+    if (
+        "latest" in question_lower
+        or "most recent" in question_lower
+        or "recent exam" in question_lower
+    ):
+        plan["exam"] = "latest"
+
+    elif (
+        "previous" in question_lower
+        or "last exam" in question_lower
+    ):
+        plan["exam"] = "previous"
 
     try:
         plan["confidence"] = float(

@@ -348,8 +348,7 @@ def extract_assignment_title(
         -> Python Basics
 
     What is my chemistry assignment?
-        -> None
-        Chemistry is treated as a subject.
+        -> chemistry assignment
     """
 
     q = normalize_question(question)
@@ -983,6 +982,58 @@ def detect_attendance_plan(
                 "The user wants to compare attendance."
             ),
         )
+        
+    # =========================================================
+    # ATTENDANCE VALIDATION
+    # =========================================================
+
+    q_lower = question.lower().strip()
+
+    # ---------------------------------------------------------
+    # POLICY / GENERAL KNOWLEDGE MUST STAY RAG
+    # ---------------------------------------------------------
+
+    policy_keywords = [
+        "policy",
+        "rule",
+        "rules",
+        "required",
+        "requirement",
+        "minimum",
+        "school policy",
+        "school rule",
+        "guideline",
+        "guidelines",
+        "what does the school say",
+        "what is the school",
+    ]
+
+    is_attendance_policy = (
+        "attendance" in q_lower
+        and any(keyword in q_lower for keyword in policy_keywords)
+    )
+
+    if is_attendance_policy:
+
+        plan = {
+            "intent": "rag",
+            "query_type": "information",
+            "operation": "fetch",
+            "source": "rag",
+            "constraints": {},
+            "context": {},
+            "metric": "none",
+            "analysis": False,
+            "comparison": False,
+            "confidence": 1.0,
+            "reasoning": "The user is asking about school attendance policy/rules."
+        }
+
+        print("\n===== VALIDATED RAG POLICY PLAN =====")
+        print(plan)
+        print("=====================================\n")
+
+        return plan
 
     # -----------------------------------------------------
     # ATTENDANCE TREND
@@ -1126,6 +1177,41 @@ def detect_assignment_plan(
     title = extract_assignment_title(q)
     scope = detect_assignment_scope(q)
 
+# =====================================================
+# IMPORTANT: SUBJECT IS NOT ASSIGNMENT TITLE
+# =====================================================
+
+    if subject and title:
+
+        normalized_subject = re.sub(
+            r"\s+",
+            " ",
+            str(subject).lower().strip()
+        )
+
+        normalized_title = re.sub(
+            r"\s+",
+            " ",
+            str(title).lower().strip()
+        )
+
+    # Remove trailing "assignment" / "assignments"
+        normalized_title = re.sub(
+            r"\s+assignments?$",
+            "",
+            normalized_title
+        ).strip()
+
+    # Example:
+    # "what is chemistry assignment"
+    #
+    # subject = chemistry
+    # title   = chemistry
+    #
+    # Therefore title MUST be removed.
+
+        if normalized_title == normalized_subject:
+            title = None
     constraints = {}
     context = {}
 
@@ -1858,6 +1944,76 @@ def detect_performance_plan(
         )
 
     return None
+
+def enforce_marks_constraints(question: str, plan: dict) -> dict:
+
+    q = question.lower().strip()
+
+    if plan.get("intent") != "marks":
+        return plan
+
+    constraints = plan.get("constraints", {}) or {}
+
+    # =================================================
+    # LATEST MARKS
+    # =================================================
+
+    if (
+        "latest marks" in q
+        or "latest mark" in q
+        or "latest exam marks" in q
+        or "most recent marks" in q
+        or "most recent mark" in q
+    ):
+
+        constraints["exam"] = "latest"
+        plan["exam"] = "latest"
+
+        if not plan.get("metric"):
+            plan["metric"] = "overall_performance"
+
+    # =================================================
+    # FINAL MARKS
+    # =================================================
+
+    elif (
+        "final marks" in q
+        or "final exam marks" in q
+        or "final examination marks" in q
+    ):
+
+        constraints["exam"] = "final"
+        plan["exam"] = "final"
+
+    # =================================================
+    # MID TERM MARKS
+    # =================================================
+
+    elif (
+        "mid term marks" in q
+        or "midterm marks" in q
+        or "mid term exam marks" in q
+    ):
+
+        constraints["exam"] = "midterm"
+        plan["exam"] = "midterm"
+
+    # =================================================
+    # PREVIOUS MARKS
+    # =================================================
+
+    elif (
+        "previous marks" in q
+        or "previous exam marks" in q
+        or "previous exam" in q
+    ):
+
+        constraints["exam"] = "previous"
+        plan["exam"] = "previous"
+
+    plan["constraints"] = constraints
+
+    return plan
 
 
 # =========================================================
@@ -3217,11 +3373,54 @@ def validate_plan(
         plan["comparison"] = True
         plan["query_type"] = "comparison"
         plan["operation"] = "analyze"
+        
+    # =====================================================
+    # ENFORCE MARKS CONSTRAINTS
+    # =====================================================
+
+# Detect latest exam questions
+    if plan.get("intent") == "marks":
+        q = question.lower().strip()
+
+        latest_keywords = [
+            "latest marks",
+            "latest mark",
+            "latest exam marks",
+            "latest exam",
+            "most recent marks",
+            "most recent mark",
+            "most recent exam",
+            "recent marks",
+            "recent mark",
+            "recent exam"
+        ]
+
+        if any(keyword in q for keyword in latest_keywords):
+            plan["constraints"]["exam"] = "latest"
+
+            print(
+                "===== LATEST EXAM DETECTED ====="
+            )
+            print(
+                "Question:",
+                question
+            )
+            print(
+                "Constraint:",
+                plan["constraints"]["exam"]
+            )
+            print(
+                "================================"
+            )
+
+    plan = enforce_marks_constraints(
+        question,
+        plan
+    )
 
     # =====================================================
     # FINAL DEBUG
     # =====================================================
-
     print("\n========== FINAL PLAN ==========")
     print(plan)
     print("Intent:", plan.get("intent"))

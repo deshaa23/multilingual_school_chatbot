@@ -80,6 +80,18 @@ def build_prompt(user_question: str, plan: dict, current_user: dict):
         LIKE '%Mid Term Examination%'
         LIKE '%Final Examination%'
 
+        - "latest marks" means marks from the most recent exam.
+        - "latest exam marks" means marks from the most recent exam.
+        - "most recent marks" means marks from the most recent exam.
+        - "latest exam" means the exam with the greatest start_date.
+        - "final marks" means Final Examination.
+        - "mid term marks" means Mid Term Examination.
+        - "previous marks" means the exam immediately before the latest exam.
+
+IMPORTANT:
+Do NOT assume that latest means Final Examination.
+"latest" must be resolved using exams.start_date.
+
         5. Subject matching should use:
         LOWER(sub.subject_name) LIKE '%mathematics%'
         LOWER(sub.subject_name) LIKE '%science%'

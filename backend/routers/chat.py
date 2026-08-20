@@ -457,15 +457,15 @@ def chat(
         # complete subject/exam/student constraints.  Do NOT pass it
         # through the old constraint engine, which can add stale or
         # incorrect subject aliases (e.g. science for computer science).
-        if plan.get("intent") not in {"marks", "performance"}:
-            validated_sql = apply_constraints(
-                validated_sql,
-                plan,
-                user_context
-            )
-        else:
-            print("\n===== CONSTRAINT ENGINE SKIPPED =====")
-            print("Deterministic SQL already contains planner constraints.")
+        # =========================================================
+        # APPLY CONSTRAINTS
+        # =========================================================
+
+        validated_sql = apply_constraints(
+            validated_sql,
+            plan,
+            user_context
+        )
 
         print("\n===== AFTER CONSTRAINTS =====")
         print(validated_sql)
