@@ -1499,6 +1499,44 @@ ORDER BY
     sub.subject_name ASC;
 """.strip()
 
+                # -------------------------------------------------
+        # FULL PERFORMANCE REPORT
+        # -------------------------------------------------
+
+        if metric == "performance_report":
+            return f"""
+            SELECT
+                sub.subject_name,
+                e.exam_name,
+                e.start_date,
+                m.marks_obtained,
+                m.maximum_marks
+
+            FROM marks m
+
+            JOIN class_subjects cs
+                ON m.class_subject_id =
+                cs.class_subject_id
+
+            JOIN subjects sub
+                ON cs.subject_id =
+                sub.subject_id
+
+            JOIN exams e
+                ON m.exam_id =
+                e.exam_id
+
+            WHERE m.student_id =
+                {student_id}
+
+            {exam_filter}
+
+            ORDER BY
+                e.start_date ASC,
+                sub.subject_name ASC;
+            """.strip()
+
+
         # -------------------------------------------------
         # OVERALL PERFORMANCE
         # -------------------------------------------------

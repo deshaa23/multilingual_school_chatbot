@@ -3,8 +3,8 @@ import api from "./api";
 // --------------------
 // Login
 // --------------------
-export const login = async (email, password) => {
 
+export const login = async (email, password) => {
   const formData = new URLSearchParams();
 
   formData.append("username", email);
@@ -26,8 +26,8 @@ export const login = async (email, password) => {
 // --------------------
 // Student Registration
 // --------------------
-export const registerStudent = async (studentData) => {
 
+export const registerStudent = async (studentData) => {
   const response = await api.post(
     "/auth/register",
     studentData
@@ -39,8 +39,8 @@ export const registerStudent = async (studentData) => {
 // --------------------
 // Parent Registration
 // --------------------
-export const registerParent = async (parentData) => {
 
+export const registerParent = async (parentData) => {
   const response = await api.post(
     "/auth/register/parent",
     parentData
@@ -52,19 +52,17 @@ export const registerParent = async (parentData) => {
 // --------------------
 // Get Classes
 // --------------------
+
 export const getClasses = async () => {
-
   const response = await api.get("/classes");
-
   return response.data;
 };
 
 // --------------------
 // Current User
 // --------------------
+
 export const getCurrentUser = async () => {
-
   const response = await api.get("/auth/me");
-
   return response.data;
 };

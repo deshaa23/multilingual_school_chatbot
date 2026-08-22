@@ -86,6 +86,7 @@ VALID_METRICS = {
     "recommendation",
     "best_exam",
     "worst_exam",
+    "performance_report",
 
     # -----------------------------------------------------
     # ASSIGNMENTS
@@ -1470,6 +1471,49 @@ def detect_performance_plan(
 
     if not q:
         return None
+    
+    # =========================================================
+    # SUBJECT FOCUS / IMPROVEMENT OVERRIDE
+    # =========================================================
+
+    focus_patterns = [
+        "which subject should i focus on",
+        "what subject should i focus on",
+        "which subject should i focus",
+        "what subject should i focus",
+        "which subject do i need to focus on",
+        "what subject do i need to focus on",
+        "which subject needs improvement",
+        "what subject needs improvement",
+        "which subject should i improve",
+        "what subject should i improve",
+        "which subject do i need to improve",
+        "what subject do i need to improve",
+        "which is my weakest subject",
+        "what is my weakest subject",
+        "which is my worst subject",
+        "what is my worst subject",
+    ]
+
+    if any(pattern in q for pattern in focus_patterns):
+
+        print("===== SUBJECT FOCUS OVERRIDE =====")
+        print("Query:", q)
+        print("Intent: performance")
+        print("Metric: lowest_subject")
+        print("=================================")
+
+        return make_plan(
+            "performance",
+            source="sql",
+            metric="lowest_subject",
+            confidence=1.0,
+            reasoning="User is asking which subject needs improvement based on marks.",
+            query_type="analysis",
+            operation="analyze",
+            analysis=True,
+            comparison=False
+        )
 
     performance_words = [
         "performance",
@@ -1545,6 +1589,44 @@ def detect_performance_plan(
         has_midterm and has_final
     ):
         return None
+    
+    # ==========================================
+    # SUBJECT TO IMPROVE / FOCUS ON
+    # ==========================================
+
+    focus_phrases = [
+    "which subject should i focus on",
+    "which subject should i focus",
+    "what subject should i focus on",
+    "what subject should i focus",
+    "subject should i focus on",
+    "focus on which subject",
+    "which subject to focus on",
+    "which subject should i improve",
+    "what subject should i improve",
+    "which subject needs improvement",
+    "what should i improve",
+    "where do i need improvement",
+    "where am i weak",
+    "weakest subject",
+    "worst subject",
+    "lowest subject",
+    "lowest marks",
+    ]
+    if any(phrase in q for phrase in focus_phrases):
+        return make_plan(
+        intent="performance",
+        query_type="analysis",
+        operation="analyze",
+        source="sql",
+        metric="lowest_subject",
+        analysis=True,
+        confidence=1.0,
+        reasoning=(
+            "The user wants to identify the subject "
+            "that needs the most improvement."
+        ),
+    )
 
     # -----------------------------------------------------
     # RECOMMENDATION
@@ -1570,7 +1652,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="recommendation",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="recommendation",
             analysis=True,
             confidence=1.0,
@@ -1579,42 +1661,89 @@ def detect_performance_plan(
                 "based on academic performance."
             ),
         )
+        
+     # =====================================================
+    # FULL PERFORMANCE REPORT
+    # =====================================================
+    if contains_any(
+        q,
+        [
+            "how did i perform",
+            "how did i perform overall",
+            "how am i performing",
+            "how am i doing",
+            "how am i doing academically",
+            "how well am i doing",
+            "how well am i doing overall",
+            "give me my performance report",
+            "give me a performance report",
+            "show my performance report",
+            "my performance report",
+        ]
+    ):
+        return make_plan(
+            "performance",
+            query_type="analysis",
+            operation="analyze",
+            source="sql",
+            metric="performance_report",
+            analysis=True,
+            comparison=True,
+            confidence=1.0,
+            reasoning=(
+                "Detected request for a complete performance "
+                "report including exam comparison, strongest "
+                "subject, and weakest subject."
+            )
+        )
+
 
     # -----------------------------------------------------
     # LOWEST SUBJECT
     # -----------------------------------------------------
 
     lowest_phrases = [
-        "weakest subject",
-        "weak subject",
-        "worst subject",
-        "lowest subject",
-        "subject with lowest marks",
-        "subject with the lowest marks",
-        "lowest marks",
-        "needs improvement",
-        "which subject needs improvement",
-        "which subject should i improve",
-        "where do i need improvement",
-        "where am i weak",
-    ]
+    "weakest subject",
+    "weak subject",
+    "worst subject",
+    "lowest subject",
+    "lowest marks",
+    "lowest score",
+    "subject with lowest marks",
+    "subject with the lowest marks",
+    "which subject has my lowest marks",
+    "which is my worst subject",
 
-    if contains_any(
-        q,
-        lowest_phrases
-    ):
+    "needs improvement",
+    "which subject needs improvement",
+    "which subject should i improve",
+    "what subject should i improve",
+    "where do i need improvement",
+    "where am i weak",
+    "what should i improve",
+
+    # IMPORTANT
+    "which subject should i focus on",
+    "subject should i focus on",
+    "focus based on my marks",
+    "focus on which subject",
+]
+
+
+    if contains_any(q,lowest_phrases):
 
         return make_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="lowest_subject",
             analysis=True,
             confidence=1.0,
             reasoning=(
                 "The user wants to identify "
                 "their weakest subject."
+                "that needs improvement."
             ),
         )
 
@@ -1624,27 +1753,24 @@ def detect_performance_plan(
 
     highest_subject_phrases = [
         "strongest subject",
-        "strong subject",
-        "best subject",
-        "highest subject",
-        "subject with highest marks",
-        "subject with the highest marks",
-        "highest marks in which subject",
-        "which subject has my highest marks",
-        "which subject is my best",
-        "which is my best subject",
+    "strong subject",
+    "best subject",
+    "highest subject",
+    "subject with highest marks",
+    "subject with the highest marks",
+    "highest marks in which subject",
+    "which subject has my highest marks",
+    "which subject is my best",
+    "which is my best subject",
     ]
 
-    if contains_any(
-        q,
-        highest_subject_phrases
-    ):
+    if contains_any(q,highest_subject_phrases):
 
         return make_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="highest_subject",
             analysis=True,
             confidence=1.0,
@@ -1683,7 +1809,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="comparison",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             constraints={
                 "exam": [
                     "midterm",
@@ -1708,7 +1834,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="comparison",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             constraints={
                 "exam": [
                     "midterm",
@@ -1753,7 +1879,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="trend",
             analysis=True,
             confidence=1.0,
@@ -1785,7 +1911,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="highest_score",
             analysis=True,
             confidence=1.0,
@@ -1817,7 +1943,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="lowest_score",
             analysis=True,
             confidence=1.0,
@@ -1847,7 +1973,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="best_exam",
             analysis=True,
             confidence=1.0,
@@ -1877,7 +2003,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="worst_exam",
             analysis=True,
             confidence=1.0,
@@ -1933,7 +2059,7 @@ def detect_performance_plan(
             intent="performance",
             query_type="analysis",
             operation="analyze",
-            source="hybrid",
+            source="sql",
             metric="overall_performance",
             analysis=True,
             confidence=1.0,
@@ -3010,10 +3136,25 @@ def validate_plan(
                 "weak subject",
                 "worst subject",
                 "lowest subject",
-                "lowest marks",
                 "subject with lowest marks",
+                "subject with the lowest marks",
+                "lowest marks in which subject",
+                "which subject has my lowest marks",
+                "which subject is my worst",
+                "which is my worst subject",
+
                 "needs improvement",
+                "which subject needs improvement",
+                "which subject should i improve",
+                "where do i need improvement",
                 "where am i weak",
+                "what should i improve",
+                "what subject should i improve",
+
+                # NEW
+                "which subject should i focus on",
+                "subject should i focus on",
+                "focus based on my marks",
             ]
         ):
 
@@ -3417,6 +3558,23 @@ def validate_plan(
         question,
         plan
     )
+    
+    if (plan.get("intent") == "performance" and any(
+        phrase in q
+        for phrase in [
+            "which subject should i improve",
+            "which subject needs improvement",
+            "what subject should i improve",
+            "where am i weak",
+            "what should i improve",
+            "focus on",
+            "which subject should i focus on",
+            "subject should i focus on",
+            "focus based on my marks"
+        ]
+    )
+):
+        plan["metric"] = "lowest_subject"
 
     # =====================================================
     # FINAL DEBUG

@@ -6,6 +6,6 @@ export default defineConfig({
   plugins: [react()],
 
   server: {
-    allowedHosts:["ambient-larry-verse-boc.trycloudflare.com"]
+    allowedHosts:["jul-paul-musician-mil.trycloudflare.com"]
   }
 });

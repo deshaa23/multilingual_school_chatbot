@@ -71,6 +71,7 @@ def analyze_results(
 
     if metric in {
         "trend",
+        "performance_report",
         "highest_subject",
         "lowest_subject",
         "overall_performance",
@@ -428,15 +429,336 @@ def analyze_performance(
     results: list
 ) -> str:
 
-    metric = plan.get(
-        "metric",
-        ""
-    )
+    metric = plan.get("metric", "")
+
+    # =====================================================
+    # FULL PERFORMANCE REPORT
+    # =====================================================
+    if metric == "performance_report":
+
+        if not results:
+            return (
+                "I couldn't determine your performance "
+                "from the available marks."
+            )
+
+        # -------------------------------------------------
+        # Group results by examination
+        # -------------------------------------------------
+        exams = {}
+
+        for row in results:
+
+            exam_name = row.get("exam_name")
+            subject = row.get("subject_name")
+
+            marks = safe_float(
+                row.get("marks_obtained")
+            )
+
+            maximum = safe_float(
+                row.get("maximum_marks")
+            )
+
+            start_date = row.get("start_date")
+
+            if (
+                not exam_name
+                or not subject
+                or marks is None
+                or maximum is None
+            ):
+                continue
+
+            exams.setdefault(
+                exam_name,
+                {
+                    "date": start_date,
+                    "subjects": {}
+                }
+            )
+
+            exams[exam_name]["subjects"][subject] = {
+                "marks": marks,
+                "maximum": maximum
+            }
+
+        # -------------------------------------------------
+        # Need at least two examinations
+        # -------------------------------------------------
+        if len(exams) < 2:
+            return (
+                "I need results from at least two "
+                "examinations to evaluate your performance."
+            )
+
+        # -------------------------------------------------
+        # Sort examinations chronologically
+        # -------------------------------------------------
+        ordered_exams = sorted(
+            exams.items(),
+            key=lambda x: (
+                x[1]["date"]
+                if x[1]["date"] is not None
+                else ""
+            )
+        )
+
+        previous_exam_name, previous_exam = ordered_exams[0]
+        current_exam_name, current_exam = ordered_exams[-1]
+
+        previous_subjects = previous_exam["subjects"]
+        current_subjects = current_exam["subjects"]
+
+        # -------------------------------------------------
+        # Calculate subject-wise improvement
+        # -------------------------------------------------
+        improvements = []
+
+        for subject in current_subjects:
+
+            if subject not in previous_subjects:
+                continue
+
+            previous_marks = previous_subjects[
+                subject
+            ]["marks"]
+
+            current_marks = current_subjects[
+                subject
+            ]["marks"]
+
+            difference = current_marks - previous_marks
+
+            improvements.append({
+                "subject": subject,
+                "previous": previous_marks,
+                "current": current_marks,
+                "difference": difference
+            })
+
+        if not improvements:
+            return (
+                "I couldn't compare your performance "
+                "because matching subjects were not found "
+                "across the examinations."
+            )
+
+        # -------------------------------------------------
+        # Overall previous percentage
+        # -------------------------------------------------
+        previous_total = sum(
+            item["marks"]
+            for item in previous_subjects.values()
+        )
+
+        previous_maximum = sum(
+            item["maximum"]
+            for item in previous_subjects.values()
+        )
+
+        previous_percentage = (
+            previous_total / previous_maximum * 100
+            if previous_maximum
+            else None
+        )
+
+        # -------------------------------------------------
+        # Overall current percentage
+        # -------------------------------------------------
+        current_total = sum(
+            item["marks"]
+            for item in current_subjects.values()
+        )
+
+        current_maximum = sum(
+            item["maximum"]
+            for item in current_subjects.values()
+        )
+
+        current_percentage = (
+            current_total / current_maximum * 100
+            if current_maximum
+            else None
+        )
+
+        # -------------------------------------------------
+        # Strongest subject in latest exam
+        # -------------------------------------------------
+        strongest = max(
+            current_subjects.items(),
+            key=lambda item: (
+                item[1]["marks"] /
+                item[1]["maximum"]
+            )
+        )
+
+        strongest_subject = strongest[0]
+
+        strongest_percentage = (
+            strongest[1]["marks"]
+            / strongest[1]["maximum"]
+        ) * 100
+
+        # -------------------------------------------------
+        # Weakest subject in latest exam
+        # -------------------------------------------------
+        weakest = min(
+            current_subjects.items(),
+            key=lambda item: (
+                item[1]["marks"] /
+                item[1]["maximum"]
+            )
+        )
+
+        weakest_subject = weakest[0]
+
+        weakest_percentage = (
+            weakest[1]["marks"]
+            / weakest[1]["maximum"]
+        ) * 100
+
+        # -------------------------------------------------
+        # Overall trend
+        # -------------------------------------------------
+        overall_change = (
+            current_percentage - previous_percentage
+        )
+
+        if overall_change > 0:
+
+            trend_text = (
+                f"Overall, your performance improved "
+                f"by {overall_change:.2f} percentage points."
+            )
+
+        elif overall_change < 0:
+
+            trend_text = (
+                f"Overall, your performance declined "
+                f"by {abs(overall_change):.2f} "
+                f"percentage points."
+            )
+
+        else:
+
+            trend_text = (
+                "Overall, your performance remained "
+                "unchanged."
+            )
+
+        # -------------------------------------------------
+        # Subject-wise changes
+        # -------------------------------------------------
+        improvement_parts = []
+
+        for item in improvements:
+
+            subject = item["subject"]
+            difference = item["difference"]
+
+            if difference > 0:
+
+                improvement_parts.append(
+                    f"{subject} improved by "
+                    f"{difference:.0f} marks"
+                )
+
+            elif difference < 0:
+
+                improvement_parts.append(
+                    f"{subject} declined by "
+                    f"{abs(difference):.0f} marks"
+                )
+
+            else:
+
+                improvement_parts.append(
+                    f"{subject} showed no change"
+                )
+
+        improvement_text = ", ".join(
+            improvement_parts
+        )
+
+        # -------------------------------------------------
+        # Final response
+        # -------------------------------------------------
+        return (
+            f"Your performance changed from "
+            f"{previous_percentage:.2f}% in "
+            f"{previous_exam_name} to "
+            f"{current_percentage:.2f}% in "
+            f"{current_exam_name}. "
+            f"{trend_text} "
+            f"{improvement_text}. "
+            f"Your strongest subject is "
+            f"{strongest_subject} with "
+            f"{strongest_percentage:.2f}% in the "
+            f"{current_exam_name}, while your "
+            f"weakest subject is "
+            f"{weakest_subject} with "
+            f"{weakest_percentage:.2f}%."
+        )
+
+    # =====================================================
+    # OVERALL PERFORMANCE
+    # =====================================================
+    if metric == "overall_performance":
+
+        total_obtained = 0.0
+        total_maximum = 0.0
+
+        for row in results:
+
+            marks = safe_float(
+                row.get("marks_obtained")
+            )
+
+            maximum = safe_float(
+                row.get("maximum_marks")
+            )
+
+            if marks is None or maximum is None:
+                continue
+
+            total_obtained += marks
+            total_maximum += maximum
+
+        if total_maximum == 0:
+            return (
+                "I couldn't determine your overall "
+                "performance from the available marks."
+            )
+
+        overall_percentage = (
+            total_obtained /
+            total_maximum
+        ) * 100
+
+        if overall_percentage >= 90:
+            evaluation = "excellent"
+        elif overall_percentage >= 80:
+            evaluation = "very good"
+        elif overall_percentage >= 70:
+            evaluation = "good"
+        elif overall_percentage >= 60:
+            evaluation = "satisfactory"
+        else:
+            evaluation = "needs improvement"
+
+        return (
+            f"Your overall performance is "
+            f"{overall_percentage:.2f}% "
+            f"({total_obtained:.0f}/"
+            f"{total_maximum:.0f}). "
+            f"Overall, your performance is "
+            f"{evaluation}."
+        )
 
     # =====================================================
     # HIGHEST SUBJECT
     # =====================================================
-
     if metric in {
         "highest_subject",
         "best_subject"
@@ -446,18 +768,13 @@ def analyze_performance(
 
         for row in results:
 
-            subject = row.get(
-                "subject_name"
-            )
+            subject = row.get("subject_name")
 
             percentage = safe_float(
                 row.get("percentage")
             )
 
-            if subject is None:
-                continue
-
-            if percentage is None:
+            if subject is None or percentage is None:
                 continue
 
             rows.append(
@@ -468,15 +785,13 @@ def analyze_performance(
             )
 
         if not rows:
-
             return (
                 "I couldn't determine "
                 "your strongest subject."
             )
 
         best_percentage = max(
-            x[1]
-            for x in rows
+            x[1] for x in rows
         )
 
         best_subjects = [
@@ -502,7 +817,6 @@ def analyze_performance(
     # =====================================================
     # LOWEST SUBJECT
     # =====================================================
-
     if metric in {
         "lowest_subject",
         "weakest_subject"
@@ -512,18 +826,13 @@ def analyze_performance(
 
         for row in results:
 
-            subject = row.get(
-                "subject_name"
-            )
+            subject = row.get("subject_name")
 
             percentage = safe_float(
                 row.get("percentage")
             )
 
-            if subject is None:
-                continue
-
-            if percentage is None:
+            if subject is None or percentage is None:
                 continue
 
             rows.append(
@@ -534,15 +843,13 @@ def analyze_performance(
             )
 
         if not rows:
-
             return (
                 "I couldn't determine "
                 "your weakest subject."
             )
 
         lowest_percentage = min(
-            x[1]
-            for x in rows
+            x[1] for x in rows
         )
 
         lowest_subjects = [
@@ -568,7 +875,6 @@ def analyze_performance(
     # =====================================================
     # HIGHEST SCORE
     # =====================================================
-
     if metric == "highest_score":
 
         row = results[0]
@@ -578,13 +884,8 @@ def analyze_performance(
             "Unknown subject"
         )
 
-        marks = row.get(
-            "marks_obtained"
-        )
-
-        maximum = row.get(
-            "maximum_marks"
-        )
+        marks = row.get("marks_obtained")
+        maximum = row.get("maximum_marks")
 
         percentage = safe_float(
             row.get("percentage")
@@ -608,7 +909,6 @@ def analyze_performance(
     # =====================================================
     # LOWEST SCORE
     # =====================================================
-
     if metric == "lowest_score":
 
         row = results[0]
@@ -618,13 +918,8 @@ def analyze_performance(
             "Unknown subject"
         )
 
-        marks = row.get(
-            "marks_obtained"
-        )
-
-        maximum = row.get(
-            "maximum_marks"
-        )
+        marks = row.get("marks_obtained")
+        maximum = row.get("maximum_marks")
 
         percentage = safe_float(
             row.get("percentage")
@@ -644,51 +939,59 @@ def analyze_performance(
             f"{subject}: "
             f"{marks}/{maximum}."
         )
-
+        
     # =====================================================
     # TREND
     # =====================================================
-
+    
     if metric == "trend":
-
-        return analyze_marks_trend(
-            results
-        )
-
+    
+            return analyze_marks_trend(
+                results
+            )
+            
     # =====================================================
     # GENERIC PERFORMANCE
     # =====================================================
-
+    
     prompt = f"""
-You are an educational performance assistant.
+    You are an educational performance assistant.
+    
+    Question:
+    {question}
+    
+    Student data:
+    {json.dumps(
+        convert_decimals(results),
+        indent=2,
+        default=str
+    )}
+    
+    Metric:
+    {metric}
+    
+    Rules:
+    - Use ONLY the provided data.
+    - Never invent marks.
+    - Never invent percentages.
+    - Do not mention SQL or databases.
+    - Do not mention AI.
+    - Use simple English.
+    - Answer the question directly.
+    - Keep the response below 150 words.
+    
+    Return only the answer.
+    """
+    
 
-Question:
-{question}
+    return analyze_generic(
+        question,
+        plan,
+        results
+    )
+    
 
-Student data:
-{json.dumps(
-    convert_decimals(results),
-    indent=2,
-    default=str
-)}
-
-Metric:
-{metric}
-
-Rules:
-- Use ONLY the provided data.
-- Never invent marks.
-- Never invent percentages.
-- Do not mention SQL or databases.
-- Do not mention AI.
-- Use simple English.
-- Answer the question directly.
-- Keep the response below 150 words.
-
-Return only the answer.
-"""
-
-    return call_llm(prompt)
+    
 
 
 # =========================================================
