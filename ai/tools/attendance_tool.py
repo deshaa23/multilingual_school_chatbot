@@ -1,12 +1,17 @@
 from backend.database import fetch_all
 
 
+# Set this to the attendance percentage required by your school.
+ATTENDANCE_REQUIREMENT = 75.0
+
+
 def get_attendance(
     student_id: int,
-    metric = None
+    metric=None
 ):
     """
-    Fetch attendance records for a student.
+    Fetch attendance records for a student and calculate
+    attendance-related metrics.
     """
 
     query = """
@@ -26,18 +31,21 @@ def get_attendance(
     total = len(results)
 
     present = sum(
-        1 for row in results
-        if row["status"].lower() == "present"
+        1
+        for row in results
+        if str(row["status"]).lower() == "present"
     )
 
     absent = sum(
-        1 for row in results
-        if row["status"].lower() == "absent"
+        1
+        for row in results
+        if str(row["status"]).lower() == "absent"
     )
 
     late = sum(
-        1 for row in results
-        if row["status"].lower() == "late"
+        1
+        for row in results
+        if str(row["status"]).lower() == "late"
     )
 
     percentage = (
@@ -46,17 +54,33 @@ def get_attendance(
         else 0
     )
 
+    percentage = round(percentage, 2)
+
+    # =========================================================
+    # ELIGIBILITY
+    # =========================================================
+
+    eligible = percentage >= ATTENDANCE_REQUIREMENT
+
     return {
         "type": "attendance",
         "success": True,
         "student_id": student_id,
         "metric": metric,
+
         "summary": {
             "total_days": total,
             "present": present,
             "absent": absent,
             "late": late,
-            "percentage": round(percentage, 2)
+            "percentage": percentage
         },
+
+        "eligibility": {
+            "required_percentage": ATTENDANCE_REQUIREMENT,
+            "current_percentage": percentage,
+            "eligible": eligible
+        },
+
         "records": results
     }

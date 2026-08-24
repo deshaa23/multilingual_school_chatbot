@@ -77,8 +77,8 @@ def process_query(
 
         answer = rag_answer(
             english_question=question,
-            original_question=original_question,
-            language=language
+            original_question=question,
+            language="ENGLISH"
         )
 
         return {

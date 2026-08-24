@@ -5,7 +5,6 @@ from ai.tools.timetable_tool import get_timetable
 from ai.tools.performance_tool import get_performance_data
 
 
-
 def run_sql_tool(
     tool_name: str,
     student_id: int,
@@ -19,6 +18,7 @@ def run_sql_tool(
     # Marks
     # -----------------------------
     if tool_name == "marks":
+
         return get_marks(
             student_id=student_id,
             subject=kwargs.get("subject"),
@@ -29,6 +29,7 @@ def run_sql_tool(
     # Attendance
     # -----------------------------
     if tool_name == "attendance":
+
         return get_attendance(
             student_id=student_id,
             metric=kwargs.get("metric")
@@ -38,15 +39,17 @@ def run_sql_tool(
     # Assignments
     # -----------------------------
     if tool_name == "assignments":
+
         return get_assignments(
             student_id=student_id,
             status=kwargs.get("status")
         )
-        
-        # -----------------------------
+
+    # -----------------------------
     # Performance
     # -----------------------------
     if tool_name == "performance":
+
         return get_performance_data(
             student_id=student_id,
             metric=kwargs.get("metric")
@@ -56,11 +59,15 @@ def run_sql_tool(
     # Timetable
     # -----------------------------
     if tool_name == "timetable":
+
         return get_timetable(
             student_id=student_id,
             day=kwargs.get("day")
         )
 
+    # -----------------------------
+    # Unknown tool
+    # -----------------------------
     raise ValueError(
         f"Unknown SQL tool: {tool_name}"
     )

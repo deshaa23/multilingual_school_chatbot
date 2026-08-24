@@ -97,7 +97,8 @@ def chat(
 
         result = process_query(
             question=request.question,
-            student_id=student_id
+            student_id=student_id,
+            language=language
         )
 
         print("\n========== NEW PIPELINE RESULT ==========")
@@ -108,11 +109,14 @@ def chat(
         # 5. GENERATE FINAL ANSWER
         # =========================================================
 
-        answer = generate_answer(
-            question=request.question,
-            results=result,
-            language=language
-        )
+        if result.get("type") == "rag":
+            answer = result["answer"]
+        else:
+            answer = generate_answer(
+                question=request.question,
+                results=result,
+                language=language
+    )
 
         print("\n========== FINAL ANSWER ==========")
         print(answer)

@@ -10,7 +10,76 @@ def generate_answer(
     language: str = "english"
 ) -> str:
     
-        # ============================================================
+    # =========================================================
+    # ATTENDANCE ELIGIBILITY
+    # =========================================================
+
+    if (
+        results.get("type") == "attendance"
+        and results.get("metric") == "eligibility"
+    ):
+
+        eligibility = results.get("eligibility", {})
+        summary = results.get("summary", {})
+
+        current_percentage = eligibility.get(
+            "current_percentage",
+            summary.get("percentage")
+        )
+
+        required_percentage = eligibility.get(
+            "required_percentage",
+            75.0
+        )
+
+        eligible = eligibility.get("eligible", False)
+
+        if language.upper() == "HINDI":
+
+            if eligible:
+                return (
+                    f"हाँ, आप attendance requirement के लिए eligible हैं। "
+                    f"आपकी current attendance {current_percentage:.2f}% है, "
+                    f"जबकि required attendance {required_percentage:.0f}% है।"
+                )
+            else:
+                return (
+                    f"नहीं, आप attendance requirement के लिए eligible नहीं हैं। "
+                    f"आपकी current attendance {current_percentage:.2f}% है, "
+                    f"जबकि required attendance {required_percentage:.0f}% है।"
+                )
+
+        elif language.upper() == "HINGLISH":
+
+            if eligible:
+                return (
+                    f"Yes, aap attendance requirement ke liye eligible hain. "
+                    f"Aapki current attendance {current_percentage:.2f}% hai, "
+                    f"jabki required attendance {required_percentage:.0f}% hai."
+                )
+            else:
+                return (
+                    f"Nahi, aap attendance requirement ke liye eligible nahi hain. "
+                    f"Aapki current attendance {current_percentage:.2f}% hai, "
+                    f"jabki required attendance {required_percentage:.0f}% hai."
+                )
+
+        else:
+
+            if eligible:
+                return (
+                    f"Yes, you are eligible based on your attendance. "
+                    f"Your current attendance is {current_percentage:.2f}%, "
+                    f"which is above the required {required_percentage:.0f}%."
+                )
+            else:
+                return (
+                    f"No, you are not eligible based on your attendance. "
+                    f"Your current attendance is {current_percentage:.2f}%, "
+                    f"which is below the required {required_percentage:.0f}%."
+                )
+    
+    # ============================================================
     # DETERMINISTIC ATTENDANCE RESPONSES
     # ============================================================
 
@@ -185,6 +254,32 @@ ABSOLUTE RULES
 
 14. Do not provide recommendations unless the CURRENT TOOL
     RESULT contains enough information to support them.
+    
+    
+# =========================================================
+    # PROFILE RESPONSE
+    # =========================================================
+
+    if results.get("type") == "profile":
+
+        if not results.get("success"):
+            return "I couldn't find your student profile."
+
+        question_lower = question.lower()
+
+        if "roll" in question_lower:
+            return f"Your roll number is {results.get('roll_number')}."
+
+        if "admission" in question_lower:
+            return f"Your admission number is {results.get('admission_number')}."
+
+        if "date of birth" in question_lower or "dob" in question_lower:
+            return f"Your date of birth is {results.get('date_of_birth')}."
+
+        return (
+            f"Your name is {results.get('first_name')} "
+            f"{results.get('last_name')}."
+        )
 
 ============================================================
 ATTENDANCE

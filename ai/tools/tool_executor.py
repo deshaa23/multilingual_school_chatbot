@@ -2,6 +2,7 @@ from ai.tools.sql_tools import run_sql_tool
 from ai.tools.analysis_tools import run_analysis_tool
 from ai.tools.assignment_tool import get_assignments
 from ai.tools.timetable_tool import get_timetable
+from ai.tools.profile_tool import get_profile
 
 
 def execute_tool(
@@ -34,7 +35,7 @@ def execute_tool(
         return run_sql_tool(
             tool_name="attendance",
             student_id=student_id,
-            **kwargs
+            metric= kwargs.get("metric")
         )
 
     # ==========================================
@@ -71,6 +72,17 @@ def execute_tool(
             tool_name="performance",
             student_id=student_id,
             **kwargs
+        )
+        
+    # ==========================================
+    # PROFILE
+    # ==========================================
+
+    if tool_name == "profile_tool":
+
+        return get_profile(
+            student_id=student_id,
+            metric=kwargs.get("metric")
         )
 
     # ==========================================

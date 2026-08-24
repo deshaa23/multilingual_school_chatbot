@@ -1,10 +1,20 @@
 from backend.database import fetch_all
+from datetime import datetime, timedelta
 
 
 def get_timetable(
     student_id: int,
-    day: str | None = None
-):
+    day= None):
+    
+    resolved_day = resolve_day(day)
+
+    print("\n========== TIMETABLE TOOL ==========")
+    print("Requested day:", day)
+    print("Resolved day:", resolved_day)
+    print("Student ID:", student_id)
+    print("====================================")
+
+
     """
     Fetch the student's timetable.
 
@@ -67,3 +77,30 @@ def get_timetable(
         "day": day,
         "results": results
     }
+    
+def resolve_day(day):
+    """
+    Convert relative days into actual weekday names.
+    """
+
+    if not day:
+        return None
+
+    day = day.lower().strip()
+
+    today = datetime.now().date()
+
+    if day == "today":
+        target_date = today
+
+    elif day == "tomorrow":
+        target_date = today + timedelta(days=1)
+
+    elif day == "yesterday":
+        target_date = today - timedelta(days=1)
+
+    else:
+        # Already an actual weekday
+        return day.capitalize()
+
+    return target_date.strftime("%A")
