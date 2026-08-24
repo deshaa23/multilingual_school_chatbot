@@ -950,38 +950,6 @@ def analyze_performance(
                 results
             )
             
-    # =====================================================
-    # GENERIC PERFORMANCE
-    # =====================================================
-    
-    prompt = f"""
-    You are an educational performance assistant.
-    
-    Question:
-    {question}
-    
-    Student data:
-    {json.dumps(
-        convert_decimals(results),
-        indent=2,
-        default=str
-    )}
-    
-    Metric:
-    {metric}
-    
-    Rules:
-    - Use ONLY the provided data.
-    - Never invent marks.
-    - Never invent percentages.
-    - Do not mention SQL or databases.
-    - Do not mention AI.
-    - Use simple English.
-    - Answer the question directly.
-    - Keep the response below 150 words.
-    
-    Return only the answer.
-    """
     
 
     return analyze_generic(
@@ -1480,6 +1448,119 @@ def analyze_attendance(
                 for d in dates
             )
         )
+        
+    # =========================================================
+    # OVERALL PERFORMANCE
+    # =========================================================
+
+    if metric == "overall_performance":
+
+        print("===== OVERALL PERFORMANCE ANALYZER =====")
+        print("Raw results:", results)
+
+        if not results:
+            return "I couldn't find any marks data for you."
+
+        row = results[0]
+
+        print("Overall performance row:", row)
+        print("Available columns:", list(row.keys()))
+
+        overall = row.get("overall_percentage")
+        total_obtained = row.get("total_obtained")
+        total_maximum = row.get("total_maximum")
+        exams_count = row.get("exams_count")
+        subjects_count = row.get("subjects_count")
+
+        # ---------------------------------------------
+        # Make sure required value exists
+        # ---------------------------------------------
+
+        if overall is None:
+            return "I couldn't determine your overall performance from the available marks."
+
+        # ---------------------------------------------
+        # Convert Decimal / numeric values safely
+        # ---------------------------------------------
+
+        try:
+            overall = float(overall)
+        except (TypeError, ValueError):
+            return "I couldn't determine your overall performance from the available marks."
+
+        try:
+            total_obtained = float(total_obtained) if total_obtained is not None else None
+        except (TypeError, ValueError):
+            total_obtained = None
+
+        try:
+            total_maximum = float(total_maximum) if total_maximum is not None else None
+        except (TypeError, ValueError):
+            total_maximum = None
+
+        # ---------------------------------------------
+        # Build answer
+        # ---------------------------------------------
+
+        if total_obtained is not None and total_maximum is not None:
+
+            answer = (
+                f"Your overall performance is {overall:.2f}% "
+                f"({total_obtained:.0f}/{total_maximum:.0f})."
+            )
+
+        else:
+
+            answer = (
+                f"Your overall performance is {overall:.2f}%."
+            )
+
+        # ---------------------------------------------
+        # Add exam / subject information
+        # ---------------------------------------------
+
+        if exams_count is not None and subjects_count is not None:
+
+            answer += (
+                f" This is based on {exams_count} exam(s) "
+                f"across {subjects_count} subject(s)."
+            )
+
+        elif exams_count is not None:
+
+            answer += (
+                f" This is based on {exams_count} exam(s)."
+            )
+
+        elif subjects_count is not None:
+
+            answer += (
+                f" This covers {subjects_count} subject(s)."
+            )
+
+        # ---------------------------------------------
+        # Performance interpretation
+        # ---------------------------------------------
+
+        if overall >= 90:
+            answer += " Excellent performance."
+
+        elif overall >= 80:
+            answer += " You are performing very well."
+
+        elif overall >= 70:
+            answer += " You are performing well, with some room for improvement."
+
+        elif overall >= 60:
+            answer += " Your performance is satisfactory, but there is room for improvement."
+
+        else:
+            answer += " There is significant room for improvement."
+
+        print("Final overall performance answer:", answer)
+        print("========================================")
+
+        return answer
 
     # =====================================================
     # LATE DATES

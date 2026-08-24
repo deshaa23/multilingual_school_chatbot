@@ -1129,16 +1129,13 @@ SELECT
 FROM marks m
 
 JOIN class_subjects cs
-    ON m.class_subject_id =
-       cs.class_subject_id
+    ON m.class_subject_id = cs.class_subject_id
 
 JOIN subjects sub
-    ON cs.subject_id =
-       sub.subject_id
+    ON cs.subject_id = sub.subject_id
 
-LEFT JOIN exams e
-    ON m.exam_id =
-       e.exam_id
+JOIN exams e
+    ON m.exam_id = e.exam_id
 
 WHERE m.student_id =
       {student_id}
@@ -1312,7 +1309,131 @@ ORDER BY
 LIMIT 1;
 """.strip()
 
+    if metric == "trend":
+
+        return f"""
+        SELECT
+        sub.subject_name,
+        e.exam_name,
+        e.start_date,
+        m.marks_obtained,
+        m.maximum_marks,
+
+        ROUND(
+            m.marks_obtained * 100.0
+            /
+            NULLIF(m.maximum_marks, 0),
+            2
+        ) AS percentage
+
+        FROM marks m
+
+        JOIN class_subjects cs
+        ON m.class_subject_id = cs.class_subject_id
+
+        JOIN subjects sub
+        ON cs.subject_id = sub.subject_id
+
+        JOIN exams e
+        ON m.exam_id = e.exam_id
+
+        WHERE m.student_id = {student_id}
+
+        ORDER BY
+        e.start_date ASC,
+        sub.subject_name ASC;
+        """
+    
+    # -----------------------------------------------------
+    # OVERALL PERFORMANCE
+    # -----------------------------------------------------
+
+    if metric == "overall_performance":
+
+        return f"""
+        SELECT
+        ROUND(
+            SUM(m.marks_obtained) * 100.0
+            /
+            NULLIF(
+                SUM(m.maximum_marks),
+                0
+            ),
+            2
+        ) AS overall_percentage,
+
+        SUM(m.marks_obtained) AS total_obtained,
+
+        SUM(m.maximum_marks) AS total_maximum,
+
+        COUNT(DISTINCT e.exam_id) AS exams_count,
+
+        COUNT(DISTINCT sub.subject_id) AS subjects_count
+
+        FROM marks m
+
+        JOIN class_subjects cs
+        ON m.class_subject_id = cs.class_subject_id
+
+        JOIN subjects sub
+        ON cs.subject_id = sub.subject_id
+
+        JOIN exams e
+        ON m.exam_id = e.exam_id
+
+        WHERE m.student_id = {student_id}
+
+        {exam_filter};
+        """.strip()
+        
+    # -----------------------------------------------------
+    # PERFORMANCE REPORT
+    # -----------------------------------------------------
+
+    if metric == "performance_report":
+
+        return f"""
+        SELECT
+        sub.subject_name,
+        e.exam_name,
+        e.start_date,
+        m.marks_obtained,
+        m.maximum_marks,
+
+        ROUND(
+        m.marks_obtained * 100.0
+        /
+        NULLIF(
+            m.maximum_marks,
+            0
+        ),
+        2
+        ) AS percentage
+
+        FROM marks m
+
+        JOIN class_subjects cs
+        ON m.class_subject_id = cs.class_subject_id
+
+        JOIN subjects sub
+        ON cs.subject_id = sub.subject_id
+
+        JOIN exams e
+        ON m.exam_id = e.exam_id
+
+        WHERE m.student_id = {student_id}
+
+        {exam_filter}
+
+        ORDER BY
+        e.start_date ASC,
+        sub.subject_name ASC;
+        """.strip()
+
+
     return None
+
+    
 
 
 # =========================================================
@@ -1351,6 +1472,42 @@ def generate_sql(
         "context",
         {}
     ) or {}
+    
+    # =====================================================
+    # NORMALIZE PERFORMANCE METRIC
+    # =====================================================
+
+    metric_aliases = {
+        "overall": "overall_performance",
+        "overall_performance": "overall_performance",
+        "overall performance": "overall_performance",
+        "average": "overall_performance",
+        "average_performance": "overall_performance",
+        "average_performance_percentage": "overall_performance",
+
+        "trend": "trend",
+        "performance_trend": "trend",
+        "progress": "trend",
+        "improvement": "trend",
+
+        "highest": "highest_subject",
+        "best": "highest_subject",
+        "best_subject": "highest_subject",
+        "highest_subject": "highest_subject",
+
+        "lowest": "lowest_subject",
+        "worst": "lowest_subject",
+        "worst_subject": "lowest_subject",
+        "lowest_subject": "lowest_subject",
+
+        "highest_score": "highest_score",
+        "lowest_score": "lowest_score",
+
+        "report": "performance_report",
+        "performance_report": "performance_report",
+    }
+
+    metric = metric_aliases.get(metric, metric)
 
     # =====================================================
     # SECURITY
@@ -1379,86 +1536,126 @@ def generate_sql(
     # PERFORMANCE
     # =====================================================
 
-    if intent == "performance":
-
-        exam_filter = exam_condition(
+        if intent == "performance":
+            exam_filter = exam_condition(
             constraints.get("exam"),
             "e"
         )
 
-        sql = generate_performance_sql(
-            metric,
-            student_id,
-            exam_filter
-        )
-
-        if sql:
-
-            print(
-                "\n===== PERFORMANCE SQL ====="
+            sql = generate_performance_sql(
+                metric,
+                student_id,
+                exam_filter
             )
 
-            print(sql)
+            if sql:
 
-            print(
-                "==========================="
+                print(
+                    "\n===== PERFORMANCE SQL ====="
+                )
+
+                print(sql)
+
+                print(
+                    "==========================="
+                )
+
+                return clean_sql(sql)
+
+            # No supported performance metric
+            raise ValueError(
+                f"Unsupported performance metric: {metric}"
             )
 
-            return clean_sql(sql)
-
-        # -------------------------------------------------
-        # TREND
-        # -------------------------------------------------
+    # -----------------------------------------------------
+    # PERFORMANCE TREND
+    # -----------------------------------------------------
 
         if metric == "trend":
-
-            sql = f"""
+            return f"""
             SELECT
-            sub.subject_name,
+                sub.subject_name,
 
-            MAX(
-                CASE
-                    WHEN LOWER(e.exam_name) LIKE '%mid%'
-                    THEN m.marks_obtained
-                END
-            ) AS mid_term_score,
+                MAX(
+                    CASE
+                        WHEN LOWER(e.exam_name) LIKE '%mid%'
+                        OR LOWER(e.exam_name) LIKE '%half%'
+                        OR LOWER(e.exam_name) LIKE '%term 1%'
+                        OR LOWER(e.exam_name) LIKE '%first term%'
+                        OR LOWER(e.exam_name) LIKE '%first semester%'
+                        THEN
+                            m.marks_obtained * 100.0
+                            / NULLIF(m.maximum_marks, 0)
+                    END
+                ) AS mid_term_score,
 
-            MAX(
-                CASE
-                    WHEN LOWER(e.exam_name) LIKE '%final%'
-                    THEN m.marks_obtained
-                END
-            ) AS final_score,
-
-            MAX(
-                CASE
-                    WHEN LOWER(e.exam_name) LIKE '%final%'
-                    THEN m.marks_obtained
-                END
-            )
-            -
-            MAX(
-                CASE
-                    WHEN LOWER(e.exam_name) LIKE '%mid%'
-                    THEN m.marks_obtained
-                END
-            ) AS improvement
+                MAX(
+                    CASE
+                        WHEN LOWER(e.exam_name) LIKE '%final%'
+                        OR LOWER(e.exam_name) LIKE '%annual%'
+                        OR LOWER(e.exam_name) LIKE '%term 2%'
+                        OR LOWER(e.exam_name) LIKE '%second term%'
+                        OR LOWER(e.exam_name) LIKE '%second semester%'
+                        THEN
+                            m.marks_obtained * 100.0
+                            / NULLIF(m.maximum_marks, 0)
+                    END
+                ) AS final_score
 
             FROM marks m
 
-            JOIN exams e
-            ON m.exam_id = e.exam_id
+            JOIN class_subjects cs
+                ON m.class_subject_id =
+                cs.class_subject_id
 
             JOIN subjects sub
-            ON m.subject_id = sub.subject_id
+                ON cs.subject_id =
+                sub.subject_id
 
-            WHERE m.student_id = {student_id}
+            JOIN exams e
+                ON m.exam_id =
+                e.exam_id
+
+            WHERE m.student_id =
+                {student_id}
+
+            {exam_filter}
 
             GROUP BY
-            sub.subject_name
+                sub.subject_id,
+                sub.subject_name
+
+            HAVING
+                MAX(
+                    CASE
+                        WHEN LOWER(e.exam_name) LIKE '%mid%'
+                        OR LOWER(e.exam_name) LIKE '%half%'
+                        OR LOWER(e.exam_name) LIKE '%term 1%'
+                        OR LOWER(e.exam_name) LIKE '%first term%'
+                        OR LOWER(e.exam_name) LIKE '%first semester%'
+                        THEN
+                            m.marks_obtained * 100.0
+                            / NULLIF(m.maximum_marks, 0)
+                    END
+                ) IS NOT NULL
+
+                AND
+
+                MAX(
+                    CASE
+                        WHEN LOWER(e.exam_name) LIKE '%final%'
+                        OR LOWER(e.exam_name) LIKE '%annual%'
+                        OR LOWER(e.exam_name) LIKE '%term 2%'
+                        OR LOWER(e.exam_name) LIKE '%second term%'
+                        OR LOWER(e.exam_name) LIKE '%second semester%'
+                        THEN
+                            m.marks_obtained * 100.0
+                            / NULLIF(m.maximum_marks, 0)
+                    END
+                ) IS NOT NULL
 
             ORDER BY
-            sub.subject_name;
+                sub.subject_name;
             """.strip()
 
         # -------------------------------------------------
@@ -1499,42 +1696,50 @@ ORDER BY
     sub.subject_name ASC;
 """.strip()
 
-                # -------------------------------------------------
+        # -------------------------------------------------
         # FULL PERFORMANCE REPORT
         # -------------------------------------------------
 
         if metric == "performance_report":
             return f"""
             SELECT
-                sub.subject_name,
-                e.exam_name,
-                e.start_date,
-                m.marks_obtained,
-                m.maximum_marks
+        sub.subject_name,
+        e.exam_name,
+        e.start_date,
+        m.marks_obtained,
+        m.maximum_marks,
 
-            FROM marks m
+        ROUND(
+            m.marks_obtained * 100.0
+            /
+            NULLIF(
+                m.maximum_marks,
+                0
+            ),
+            2
+        ) AS percentage
 
-            JOIN class_subjects cs
-                ON m.class_subject_id =
-                cs.class_subject_id
+        FROM marks m
 
-            JOIN subjects sub
-                ON cs.subject_id =
-                sub.subject_id
+        JOIN class_subjects cs
+        ON m.class_subject_id =
+            cs.class_subject_id
 
-            JOIN exams e
-                ON m.exam_id =
-                e.exam_id
+        JOIN subjects sub
+        ON cs.subject_id =
+            sub.subject_id
 
-            WHERE m.student_id =
-                {student_id}
+        JOIN exams e
+        ON m.exam_id =
+            e.exam_id
 
-            {exam_filter}
+        WHERE m.student_id =
+            {student_id}
 
-            ORDER BY
-                e.start_date ASC,
-                sub.subject_name ASC;
-            """.strip()
+        ORDER BY
+        e.start_date ASC,
+        sub.subject_name ASC;
+        """.strip()
 
 
         # -------------------------------------------------

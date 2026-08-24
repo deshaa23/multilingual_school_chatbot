@@ -11,6 +11,8 @@ from ai.sql_validator import validate_sql
 from ai.query_executor import execute_sql
 from ai.answer_generator import generate_answer
 from ai.analyzer import analyze_results
+from ai.tools.performance_tool import analyze_performance
+
 
 from rag.intent_classifier import detect_intent
 from rag.rag_pipeline import rag_answer
@@ -194,9 +196,24 @@ def chat(
         print("Before planner:")
         print(repr(english_query))
         
-        plan = plan_query(english_query)
+        #plan = plan_query(english_query)
         # Apply deterministic fallback validation
-        plan = validate_plan(plan, english_query)
+        #plan = validate_plan(plan, english_query)
+        
+        try:
+            plan = plan_query(english_query)
+
+    # Apply deterministic fallback validation
+            plan = validate_plan(plan, english_query)
+
+        except Exception as e:
+            print("\n========== PLANNER ERROR ==========")
+            print("ERROR TYPE:", type(e).__name__)
+            print("ERROR:", str(e))
+            traceback.print_exc()
+            print("===================================\n")
+
+            raise
         
         print("\n========== PLAN DEBUG ==========")
         print(plan)
@@ -210,10 +227,6 @@ def chat(
     )
         
         
-        if plan["intent"] == "unknown":
-            return ChatResponse(
-        answer="I'm not sure I understood your question. Could you please rephrase it?"
-    )
         print("\n===== EXECUTION PLAN =====")
         print(plan)
         print("==========================")
@@ -237,6 +250,7 @@ def chat(
         intent = plan["intent"]
         print("\nDetected Intent:")
         print(intent)
+        print("CHECKPOINT 1: after intent")
 
         """print("Detected SQL Intents:", intent)
 
@@ -272,6 +286,8 @@ def chat(
             )
 
             return ChatResponse(answer=answer)
+        
+        print("CHECKPOINT 2: before parent block")
 
         if current_user["role"] == "parent":
             children = user_context["children"]
@@ -306,7 +322,7 @@ def chat(
 
             print("Requested Student:", requested_student)
             print("Parent Children:", children)
-            print("Matched:", matched if 'matched' in locals() else None)
+            
 
             if requested_student:
 
@@ -394,36 +410,118 @@ def chat(
                     {names}
                     """
 
-                    return ChatResponse(answer=answer)    
+                    return ChatResponse(answer=answer)
+        print("CHECKPOINT 3: after parent block")   
         requested_name = None
-        if current_user["role"] == "student":
-            my_first = user_context["first_name"].lower()
-            my_last = user_context["last_name"].lower()
-            students = fetch_all("""
-            SELECT LOWER(first_name) AS first_name,
-            LOWER(last_name) AS last_name
-            FROM students;
-            """)
-            for student in students:
-                first = student["first_name"]
-                last = student["last_name"]
-                full = f"{first} {last}"
-                if (
-                re.search(rf"\b{re.escape(first)}\b", english_query) or
-                re.search(rf"\b{re.escape(last)}\b", english_query) or
-                re.search(rf"\b{re.escape(full)}\b", english_query)
-                ):
+        
+        # =========================================================
+        # STUDENT NAME ACCESS CHECK
+        # =========================================================
 
-        
+        print("\n===== STUDENT NAME CHECK =====")
+
+        if current_user["role"] == "student":
+
+            my_first = user_context.get("first_name", "").lower()
+            my_last = user_context.get("last_name", "").lower()
+
+            print("Logged-in student:", my_first, my_last)
+
+            try:
+                students = fetch_all("""
+                    SELECT
+                        LOWER(first_name) AS first_name,
+                        LOWER(last_name) AS last_name
+                    FROM students;
+                """)
+
+                print("Students loaded:", len(students))
+
+            except Exception as e:
+
+                print("STUDENT NAME QUERY ERROR:", repr(e))
+
+                raise
+
+            for student in students:
+
+                first = (student.get("first_name") or "").lower()
+                last = (student.get("last_name") or "").lower()
+
+                if not first and not last:
+                    continue
+
+                full = f"{first} {last}".strip()
+
+                print(
+                    "Checking student:",
+                    first,
+                    last
+                )
+
+                # -------------------------------------------------
+                # Do NOT treat generic words as student names
+                # -------------------------------------------------
+
+                first_match = (
+                    bool(first)
+                    and re.search(
+                        rf"\b{re.escape(first)}\b",
+                        english_query
+                    )
+                )
+
+                last_match = (
+                    bool(last)
+                    and re.search(
+                        rf"\b{re.escape(last)}\b",
+                        english_query
+                    )
+                )
+
+                full_match = (
+                    bool(full)
+                    and re.search(
+                        rf"\b{re.escape(full)}\b",
+                        english_query
+                    )
+                )
+
+                if first_match or last_match or full_match:
+
+                    print(
+                        "Student name detected in query:",
+                        full
+                    )
+
+                    # -------------------------------------------------
+                    # If it is NOT the logged-in student -> BLOCK
+                    # -------------------------------------------------
+
                     if first != my_first or last != my_last:
+
+                        print(
+                            "BLOCKED: another student's name detected"
+                        )
+
                         return ChatResponse(
-                            answer="BLOCKED BY NAME CHECK"
-            )
-        
+                            answer="You can only access your own academic information."
+                        )
+
+                    else:
+
+                        print(
+                            "Allowed: logged-in student's own name detected."
+                        )
+
+        print("===== STUDENT NAME CHECK COMPLETE =====")
+        print("CHECKPOINT 4: after student name check")
         if plan["confidence"] < 0.4:
+            print("CHECKPOINT 5: low confidence")
             return ChatResponse(
                 answer="I'm not sure I understood your question. Could you please rephrase it?"
     )
+        print("CHECKPOINT 6: before SQL generation")
 
         
         # -----------------------------
@@ -564,101 +662,119 @@ def chat(
                 return ChatResponse(
                     answer="I couldn't process your request. Please try again."
     )
-                """
-        # -----------------------------
-        # Format Response
-        # -----------------------------
-        
-       
-        sql_lower = validated_sql.lower()
-        print("SQL LOWER:")
-        print(repr(sql_lower))
-
-        if plan["intent"] == "marks":
-            print(">>> USING format_marks()")
-            
-            answer = format_marks(results,language)
-            print("\nFormatted Answer:")
-            print(answer)
-            print("\n================ FORMATTED ANSWER ================\n")
-            print(answer)
-            print("\n==================================================\n")
-
-        elif plan["intent"] == "attendance":
-
-            answer = format_attendance(results,language)
-
-        elif plan["intent"] == "timetable":
-
-            answer = format_timetable(results,language)
-
-        elif plan["intent"] == "assignments":
-
-            answer = format_assignments(results,language)
-            
-        elif plan["intent"] == "teacher":
-            answer = format_teacher(results, language)
-            
-           
-            
-        elif plan["intent"] == "profile":
-            print(results)
-            answer = format_profile(results, language)
-
-        
-        elif plan["intent"] == "class":
-            answer = format_class(results, language)
             
         
 
-        else:
+        # =========================================================
+        # PERFORMANCE / ANALYSIS RESPONSE
+        # =========================================================
 
-            answer = generate_answer(
-                request.question,
-                results,
-                language
-            )
+        if (
+            plan.get("intent") == "performance"
+            or plan.get("analysis") is True
+            or plan.get("operation") == "analyze"
+        ):
 
-        return ChatResponse(answer=answer)
-        """
-        # -----------------------------
-        # Analyze performance queries
-        # -----------------------------
-        if plan.get("intent") == "performance" or plan.get("analysis"):
+            print("\n===== PERFORMANCE ANALYSIS =====")
+            print("Query:", english_query)
+            print("Plan:", plan)
+            print("Results:", results)
+            print("================================")
+
             answer = analyze_results(
                 english_query,
                 plan,
                 results
             )
+
+            print("\n===== ANALYZED ANSWER =====")
+            print(answer)
+            print("============================")
+
+        # =========================================================
+        # NORMAL SQL RESPONSES
+        # =========================================================
+
         else:
+
             sql_lower = validated_sql.lower()
-            print("SQL LOWER:")
+
+            print("\nSQL LOWER:")
             print(repr(sql_lower))
 
             if plan["intent"] == "marks":
-                answer = format_marks(results, language)
+
+                print(">>> USING format_marks()")
+
+                answer = format_marks(
+                    results,
+                    language
+                )
+
             elif plan["intent"] == "attendance":
-                answer = format_attendance(results, language)
+
+                answer = format_attendance(
+                    results,
+                    language
+                )
+
             elif plan["intent"] == "timetable":
-                answer = format_timetable(results, language)
+
+                answer = format_timetable(
+                    results,
+                    language
+                )
+
             elif plan["intent"] == "assignments":
-                answer = format_assignments(results, language)
+
+                answer = format_assignments(
+                    results,
+                    language
+                )
+
             elif plan["intent"] == "teacher":
-                answer = format_teacher(results, language)
+
+                answer = format_teacher(
+                    results,
+                    language
+                )
+
             elif plan["intent"] == "profile":
-                answer = format_profile(results, language)
+
+                answer = format_profile(
+                    results,
+                    language
+                )
+
             elif plan["intent"] == "class":
-                answer = format_class(results, language)
+
+                answer = format_class(
+                    results,
+                    language
+                )
+
             else:
+
                 answer = generate_answer(
                     request.question,
                     results,
                     language
                 )
 
-        return ChatResponse(answer=answer)
+        # =========================================================
+        # FINAL RESPONSE
+        # =========================================================
+
+        return ChatResponse(
+            answer=answer
+        )
 
     except ValueError as e:
+
+        print("\n========== VALUE ERROR ==========")
+        print("ERROR:", repr(e))
+        traceback.print_exc()
+        print("=================================\n")
 
         raise HTTPException(
             status_code=400,

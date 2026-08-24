@@ -169,7 +169,53 @@ highest_score
 lowest_score
 trend
 exam_comparison
+overall_performance
+subject_performance
+recommendation
+best_exam
+worst_exam
+performance_report
 none
+
+
+RECOMMENDATION QUERIES
+
+If the user is asking what they should focus on, improve,
+study more, work on, or prioritize based on their academic
+performance, use:
+
+intent = performance
+source = sql
+metric = recommendation
+
+Examples:
+
+"Which subject should I focus on?"
+→ performance / recommendation
+
+"Where should I put more effort?"
+→ performance / recommendation
+
+"What should I work on?"
+→ performance / recommendation
+
+"Which area needs my attention?"
+→ performance / recommendation
+
+"Which subject should I focus on based on my marks?"
+→ performance / recommendation
+
+"Am I doing well?"
+→ performance / overall_performance
+
+"How did I perform?"
+→ performance / performance_report
+
+"Which subject am I best at?"
+→ performance / highest_subject
+
+"Which subject am I weakest in?"
+→ performance / lowest_subject
 
 Examples:
 

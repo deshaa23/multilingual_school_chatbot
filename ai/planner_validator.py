@@ -1464,7 +1464,8 @@ def detect_assignment_plan(
 # =========================================================
 
 def detect_performance_plan(
-    question: str
+    question: str,
+    existing_metric=None
 ):
 
     q = normalize_question(question)
@@ -1472,47 +1473,88 @@ def detect_performance_plan(
     if not q:
         return None
     
+    # =====================================================
+    # FULL PERFORMANCE REPORT
+    # =====================================================
+
+    if contains_any(
+        q,
+        [
+            "how did i perform",
+            "how did i perform overall",
+            "how am i performing",
+            "how am i doing",
+            "how am i doing academically",
+            "how well am i doing",
+            "how well am i doing overall",
+            "give me my performance report",
+            "give me a performance report",
+            "show my performance report",
+            "my performance report",
+        ]
+    ):
+        return make_plan(
+        intent="performance",
+        query_type="analysis",
+        operation="analyze",
+        source="sql",
+        metric="performance_report",
+        analysis=True,
+        comparison=True,
+        confidence=1.0,
+        reasoning=(
+            "Detected request for a complete performance report "
+            "including exam comparison, strongest subject, "
+            "weakest subject, and overall trend."
+        )
+    )
+    
     # =========================================================
     # SUBJECT FOCUS / IMPROVEMENT OVERRIDE
     # =========================================================
 
-    focus_patterns = [
+    focus_phrases = [
         "which subject should i focus on",
-        "what subject should i focus on",
         "which subject should i focus",
+        "what subject should i focus on",
         "what subject should i focus",
-        "which subject do i need to focus on",
-        "what subject do i need to focus on",
-        "which subject needs improvement",
-        "what subject needs improvement",
+        "subject should i focus on",
+        "focus on which subject",
+        "which subject to focus on",
+
         "which subject should i improve",
         "what subject should i improve",
-        "which subject do i need to improve",
-        "what subject do i need to improve",
-        "which is my weakest subject",
-        "what is my weakest subject",
-        "which is my worst subject",
-        "what is my worst subject",
+        "which subject needs improvement",
+        "what should i improve",
+        "where do i need improvement",
+        "where am i weak",
+
+        "weakest subject",
+        "worst subject",
+        "lowest subject",
+        "lowest marks",
+
+        # Important: recommendation based on marks
+        "focus based on my marks",
+        "focus based on marks",
+        "improve based on my marks",
+        "improve based on marks",
+        "subject based on my marks",
     ]
 
-    if any(pattern in q for pattern in focus_patterns):
-
-        print("===== SUBJECT FOCUS OVERRIDE =====")
-        print("Query:", q)
-        print("Intent: performance")
-        print("Metric: lowest_subject")
-        print("=================================")
-
+    if any(phrase in q for phrase in focus_phrases):
         return make_plan(
-            "performance",
-            source="sql",
-            metric="lowest_subject",
-            confidence=1.0,
-            reasoning="User is asking which subject needs improvement based on marks.",
+            intent="performance",
             query_type="analysis",
             operation="analyze",
+            source="sql",
+            metric="lowest_subject",
             analysis=True,
-            comparison=False
+            confidence=1.0,
+            reasoning=(
+                "Detected subject-focus/improvement query "
+                "based on student marks."
+            )
         )
 
     performance_words = [
@@ -2048,7 +2090,45 @@ def detect_performance_plan(
                 "information for a specific subject."
             ),
         )
+    
+    # =========================================================
+    # PERFORMANCE TREND / IMPROVEMENT
+    # =========================================================
 
+    performance_trend_phrases = [
+        "am i improving",
+        "is my performance improving",
+        "am i getting better",
+        "is my performance getting better",
+        "am i doing better",
+        "did i improve",
+        "did i improve in exams",
+        "have i improved",
+        "have i been improving",
+        "am i performing better",
+        "performance trend",
+        "my performance over time",
+        "my progress",
+        "how is my performance changing",
+    ]
+
+    if contains_any(q, performance_trend_phrases):
+
+        return make_plan(
+            intent="performance",
+            query_type="analysis",
+            operation="analyze",
+            source="sql",
+            metric="trend",
+            analysis=True,
+            comparison=False,
+            confidence=1.0,
+            reasoning=(
+                "The user wants to know whether "
+                "their exam performance is improving over time."
+            ),
+        )
+    
     # -----------------------------------------------------
     # GENERAL PERFORMANCE
     # -----------------------------------------------------
@@ -2630,7 +2710,9 @@ def build_fallback_plan(
     # =====================================================
     # 3. PERFORMANCE
     # =====================================================
-
+    
+    
+    
     performance_plan = detect_performance_plan(q)
 
     if performance_plan is not None:
@@ -3124,6 +3206,45 @@ def validate_plan(
         plan["query_type"] = "analysis"
         plan["source"] = "hybrid"
         plan["analysis"] = True
+        
+        # =========================================================
+        # GENERIC PERFORMANCE REPORT OVERRIDE
+        # =========================================================
+
+        generic_performance_phrases = [
+            "how did i perform",
+            "how did i do",
+            "how am i performing",
+            "how is my performance",
+            "how was my performance",
+            "my overall performance",
+            "overall performance",
+            "tell me about my performance",
+            "give me my performance",
+            "performance report",
+            "performance summary"
+        ]
+
+        if any(
+            phrase in q.lower()
+            for phrase in generic_performance_phrases
+        ):
+            return make_plan(
+                "performance",
+                source="hybrid",
+                metric="performance_report",
+                subject=None,
+                exam=None,
+                day=None,
+                confidence= 0.95,
+                reasoning="compare performance across examinations",
+                constraints={},
+                context={},
+                operation="analyze",
+                query_type="analysis",
+                analysis=True,
+                comparison=True
+            )
 
         # -------------------------------------------------
         # LOWEST SUBJECT
