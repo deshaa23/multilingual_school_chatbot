@@ -5,9 +5,7 @@ from rag.rag_pipeline import rag_answer
 
 def process_query(
     question: str,
-    student_id: int,
-    language: str = "ENGLISH",
-    original_question: str = None
+    student_id: int
 ):
     """
     Main chatbot pipeline.
@@ -16,21 +14,18 @@ def process_query(
 
         User Question
               ↓
-           Router
+            Router
               ↓
-       ┌──────┴──────┐
-       ↓             ↓
-    SQL Tools      RAG Tool
-       ↓             ↓
-    Database      Chroma
-       ↓             ↓
-       └──────┬──────┘
+        ┌─────┴─────┐
+        ↓           ↓
+       RAG          SQL
+        ↓           ↓
+    RAG Answer   Tool Executor
+        ↓           ↓
+        └─────┬─────┘
               ↓
-          Tool Result
+         Final Answer
     """
-
-    if original_question is None:
-        original_question = question
 
     # ==========================================
     # 1. ROUTE THE QUESTION
@@ -39,16 +34,17 @@ def process_query(
     route = route_query(question)
 
     tool_name = route["tool"]
+    metric = route.get("metric")
 
     print("\n========== ROUTING ==========")
     print(f"Question  : {question}")
     print(f"Tool      : {tool_name}")
-    print(f"Metric    : {route.get('metric')}")
+    print(f"Metric    : {metric}")
     print(f"Subject   : {route.get('subject')}")
     print(f"Exam      : {route.get('exam')}")
     print(f"Day       : {route.get('day')}")
     print(f"Status    : {route.get('status')}")
-    print(f"Confidence: {route.get('confidence')}")
+    print(f"Confidence: {route['confidence']}")
     print("=============================")
 
     # ==========================================
@@ -60,7 +56,7 @@ def process_query(
         return {
             "type": "general_chat",
             "success": True,
-            "message": "General chat"
+            "message": "General chat handling will be connected next."
         }
 
     # ==========================================
@@ -69,16 +65,10 @@ def process_query(
 
     if tool_name == "rag_tool":
 
-        print("\n========== RAG TOOL ==========")
-        print("English Question :", question)
-        print("Original Question:", original_question)
-        print("Language         :", language)
-        print("==============================")
-
         answer = rag_answer(
             english_question=question,
-            original_question=original_question,
-            language=language
+            original_question=question,
+            language="ENGLISH"
         )
 
         return {
@@ -88,12 +78,8 @@ def process_query(
         }
 
     # ==========================================
-    # 4. SQL / DATABASE TOOLS
+    # 4. SQL / OTHER TOOLS
     # ==========================================
-
-    print("\n========== SQL TOOL ==========")
-    print("Tool:", tool_name)
-    print("==============================")
 
     result = execute_tool(
         tool_name=tool_name,

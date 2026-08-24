@@ -2,7 +2,8 @@ from backend.database import fetch_all
 
 
 def get_attendance(
-    student_id: int
+    student_id: int,
+    metric = None
 ):
     """
     Fetch attendance records for a student.
@@ -49,6 +50,7 @@ def get_attendance(
         "type": "attendance",
         "success": True,
         "student_id": student_id,
+        "metric": metric,
         "summary": {
             "total_days": total,
             "present": present,

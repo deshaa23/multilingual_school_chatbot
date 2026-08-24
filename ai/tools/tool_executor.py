@@ -1,5 +1,7 @@
 from ai.tools.sql_tools import run_sql_tool
 from ai.tools.analysis_tools import run_analysis_tool
+from ai.tools.assignment_tool import get_assignments
+from ai.tools.timetable_tool import get_timetable
 
 
 def execute_tool(
@@ -44,7 +46,7 @@ def execute_tool(
         return run_sql_tool(
             tool_name="assignments",
             student_id=student_id,
-            **kwargs
+            status=kwargs.get("status")
         )
 
     # ==========================================
@@ -56,7 +58,7 @@ def execute_tool(
         return run_sql_tool(
             tool_name="timetable",
             student_id=student_id,
-            **kwargs
+            day=kwargs.get("day")
         )
 
     # ==========================================

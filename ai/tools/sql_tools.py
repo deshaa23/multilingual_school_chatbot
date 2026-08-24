@@ -2,6 +2,8 @@ from ai.tools.marks_tool import get_marks
 from ai.tools.attendance_tool import get_attendance
 from ai.tools.assignment_tool import get_assignments
 from ai.tools.timetable_tool import get_timetable
+from ai.tools.performance_tool import get_performance_data
+
 
 
 def run_sql_tool(
@@ -28,7 +30,8 @@ def run_sql_tool(
     # -----------------------------
     if tool_name == "attendance":
         return get_attendance(
-            student_id=student_id
+            student_id=student_id,
+            metric=kwargs.get("metric")
         )
 
     # -----------------------------
@@ -38,6 +41,15 @@ def run_sql_tool(
         return get_assignments(
             student_id=student_id,
             status=kwargs.get("status")
+        )
+        
+        # -----------------------------
+    # Performance
+    # -----------------------------
+    if tool_name == "performance":
+        return get_performance_data(
+            student_id=student_id,
+            metric=kwargs.get("metric")
         )
 
     # -----------------------------

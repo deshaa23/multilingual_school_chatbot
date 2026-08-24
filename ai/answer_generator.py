@@ -9,6 +9,47 @@ def generate_answer(
     results,
     language: str = "english"
 ) -> str:
+    
+        # ============================================================
+    # DETERMINISTIC ATTENDANCE RESPONSES
+    # ============================================================
+
+    if isinstance(results, dict) and results.get("type") == "attendance":
+
+        summary = results.get("summary", {})
+
+        if language.upper() == "HINDI":
+
+            if "percentage" in summary:
+                return (
+                    f"आपकी वर्तमान उपस्थिति {summary['percentage']:.2f}% है। "
+                    f"आप {summary.get('total_days', 0)} दिनों में से "
+                    f"{summary.get('present', 0)} दिन उपस्थित रहे और "
+                    f"{summary.get('absent', 0)} दिन अनुपस्थित रहे।"
+                )
+
+        elif language.upper() == "HINGLISH":
+
+            if "percentage" in summary:
+                return (
+                    f"Aapki current attendance "
+                    f"{summary['percentage']:.2f}% hai. "
+                    f"Aap {summary.get('total_days', 0)} dinon mein se "
+                    f"{summary.get('present', 0)} din present rahe aur "
+                    f"{summary.get('absent', 0)} din absent rahe."
+                )
+
+        else:
+
+            if "percentage" in summary:
+                return (
+                    f"Your current attendance is "
+                    f"{summary['percentage']:.2f}%. "
+                    f"You were present for "
+                    f"{summary.get('present', 0)} out of "
+                    f"{summary.get('total_days', 0)} days and absent for "
+                    f"{summary.get('absent', 0)} days."
+                )
 
     # ============================================================
     # LANGUAGE
@@ -51,6 +92,8 @@ Answer in clear, natural English.
         default=str,
         indent=2
     )
+    
+    
 
     # ============================================================
     # FINAL ANSWER PROMPT
