@@ -7,130 +7,268 @@ MODEL = "llama3:latest"
 def generate_answer(
     question: str,
     results,
-    language: str = "english"
+    language: str = "english",
+    user_role: str = "student"
 ) -> str:
-    
+
     # =========================================================
-    # ATTENDANCE ELIGIBILITY
+    # SAFETY
     # =========================================================
 
-    if (
-        results.get("type") == "attendance"
-        and results.get("metric") == "eligibility"
-    ):
+    if not isinstance(results, dict):
+        return "I don't have enough information to answer that."
 
+    result_type = results.get("type")
+
+    # =========================================================
+    # ROLE WORDING
+    # =========================================================
+
+    if user_role == "parent":
+        owner = "Your child's"
+        subject_pronoun = "Your child"
+    elif user_role == "teacher":
+        owner = "The student's"
+        subject_pronoun = "The student"
+    else:
+        owner = "Your"
+        subject_pronoun = "You"
+
+    # =========================================================
+    # PROFILE
+    # =========================================================
+
+    if result_type == "profile":
+
+        if not results.get("success", True):
+            if user_role == "parent":
+                return "I couldn't find your child's profile."
+            elif user_role == "teacher":
+                return "I couldn't find the student's profile."
+            else:
+                return "I couldn't find your student profile."
+
+        question_lower = question.lower()
+
+        if "roll" in question_lower:
+            value = results.get("roll_number")
+
+            if value is not None:
+                return f"{owner} roll number is {value}."
+
+        if "admission" in question_lower:
+            value = results.get("admission_number")
+
+            if value is not None:
+                return f"{owner} admission number is {value}."
+
+        if (
+            "date of birth" in question_lower
+            or "dob" in question_lower
+        ):
+            value = results.get("date_of_birth")
+
+            if value is not None:
+                return f"{owner} date of birth is {value}."
+
+        first_name = results.get("first_name", "")
+        last_name = results.get("last_name", "")
+
+        return f"{owner} name is {first_name} {last_name}.".strip()
+
+    # =========================================================
+    # ATTENDANCE
+    # =========================================================
+
+    if result_type == "attendance":
+
+        summary = results.get("summary", {})
         eligibility = results.get("eligibility", {})
-        summary = results.get("summary", {})
 
-        current_percentage = eligibility.get(
-            "current_percentage",
-            summary.get("percentage")
+        percentage = summary.get("percentage")
+
+        # -----------------------------------------------------
+        # Eligibility question
+        # -----------------------------------------------------
+
+        question_lower = question.lower()
+
+        eligibility_question = any(
+            phrase in question_lower
+            for phrase in [
+                "eligible",
+                "eligibility",
+                "attendance requirement",
+                "attendance enough",
+                "meet the attendance",
+                "allowed based on attendance",
+                "sit for the exam"
+            ]
         )
 
-        required_percentage = eligibility.get(
-            "required_percentage",
-            75.0
-        )
+        if eligibility_question:
 
-        eligible = eligibility.get("eligible", False)
+            required = eligibility.get("required_percentage")
+            eligible = eligibility.get("eligible")
 
-        if language.upper() == "HINDI":
+            if (
+                eligible is not None
+                and required is not None
+                and percentage is not None
+            ):
 
-            if eligible:
+                if language.upper() == "HINDI":
+
+                    if eligible:
+                        return (
+                            f"हाँ, {subject_pronoun.lower()} attendance "
+                            f"requirement के लिए eligible है। "
+                            f"Attendance {percentage:.2f}% है और "
+                            f"required attendance {required:.0f}% है।"
+                        )
+
+                    return (
+                        f"नहीं, {subject_pronoun.lower()} attendance "
+                        f"requirement के लिए eligible नहीं है। "
+                        f"Attendance {percentage:.2f}% है, जबकि "
+                        f"required attendance {required:.0f}% है।"
+                    )
+
+                elif language.upper() == "HINGLISH":
+
+                    if eligible:
+                        return (
+                            f"Yes, {subject_pronoun.lower()} attendance "
+                            f"requirement ke liye eligible hai. "
+                            f"Attendance {percentage:.2f}% hai aur "
+                            f"required attendance {required:.0f}% hai."
+                        )
+
+                    return (
+                        f"Nahi, {subject_pronoun.lower()} attendance "
+                        f"requirement ke liye eligible nahi hai. "
+                        f"Attendance {percentage:.2f}% hai, jabki "
+                        f"required attendance {required:.0f}% hai."
+                    )
+
+                else:
+
+                    if eligible:
+                        return (
+                            f"Yes, {subject_pronoun.lower()} meets the "
+                            f"attendance requirement. "
+                            f"{owner.lower()} attendance is "
+                            f"{percentage:.2f}%, while the required "
+                            f"attendance is {required:.0f}%."
+                        )
+
+                    return (
+                        f"No, {subject_pronoun.lower()} does not meet the "
+                        f"attendance requirement. "
+                        f"{owner.lower()} attendance is "
+                        f"{percentage:.2f}%, while the required "
+                        f"attendance is {required:.0f}%."
+                    )
+
+            if percentage is not None:
                 return (
-                    f"हाँ, आप attendance requirement के लिए eligible हैं। "
-                    f"आपकी current attendance {current_percentage:.2f}% है, "
-                    f"जबकि required attendance {required_percentage:.0f}% है।"
-                )
-            else:
-                return (
-                    f"नहीं, आप attendance requirement के लिए eligible नहीं हैं। "
-                    f"आपकी current attendance {current_percentage:.2f}% है, "
-                    f"जबकि required attendance {required_percentage:.0f}% है।"
-                )
-
-        elif language.upper() == "HINGLISH":
-
-            if eligible:
-                return (
-                    f"Yes, aap attendance requirement ke liye eligible hain. "
-                    f"Aapki current attendance {current_percentage:.2f}% hai, "
-                    f"jabki required attendance {required_percentage:.0f}% hai."
-                )
-            else:
-                return (
-                    f"Nahi, aap attendance requirement ke liye eligible nahi hain. "
-                    f"Aapki current attendance {current_percentage:.2f}% hai, "
-                    f"jabki required attendance {required_percentage:.0f}% hai."
-                )
-
-        else:
-
-            if eligible:
-                return (
-                    f"Yes, you are eligible based on your attendance. "
-                    f"Your current attendance is {current_percentage:.2f}%, "
-                    f"which is above the required {required_percentage:.0f}%."
-                )
-            else:
-                return (
-                    f"No, you are not eligible based on your attendance. "
-                    f"Your current attendance is {current_percentage:.2f}%, "
-                    f"which is below the required {required_percentage:.0f}%."
-                )
-    
-    # ============================================================
-    # DETERMINISTIC ATTENDANCE RESPONSES
-    # ============================================================
-
-    if isinstance(results, dict) and results.get("type") == "attendance":
-
-        summary = results.get("summary", {})
-
-        if language.upper() == "HINDI":
-
-            if "percentage" in summary:
-                return (
-                    f"आपकी वर्तमान उपस्थिति {summary['percentage']:.2f}% है। "
-                    f"आप {summary.get('total_days', 0)} दिनों में से "
-                    f"{summary.get('present', 0)} दिन उपस्थित रहे और "
-                    f"{summary.get('absent', 0)} दिन अनुपस्थित रहे।"
-                )
-
-        elif language.upper() == "HINGLISH":
-
-            if "percentage" in summary:
-                return (
-                    f"Aapki current attendance "
-                    f"{summary['percentage']:.2f}% hai. "
-                    f"Aap {summary.get('total_days', 0)} dinon mein se "
-                    f"{summary.get('present', 0)} din present rahe aur "
-                    f"{summary.get('absent', 0)} din absent rahe."
+                    f"{owner} attendance is {percentage:.2f}%, "
+                    f"but I don't have the required minimum attendance "
+                    f"percentage needed to determine eligibility."
                 )
 
-        else:
+            return "I don't have enough information to determine attendance eligibility."
 
-            if "percentage" in summary:
+        # -----------------------------------------------------
+        # Percentage
+        # -----------------------------------------------------
+
+        if (
+            "percentage" in question_lower
+            or "attendance" in question_lower
+            or "attended" in question_lower
+            or "present" in question_lower
+        ):
+
+            if percentage is not None:
+
+                if language.upper() == "HINDI":
+                    return (
+                        f"{'आपके बच्चे की' if user_role == 'parent' else 'आपकी'} "
+                        f"वर्तमान उपस्थिति {percentage:.2f}% है।"
+                    )
+
+                if language.upper() == "HINGLISH":
+                    return (
+                        f"{'Aapke child ki' if user_role == 'parent' else 'Aapki'} "
+                        f"current attendance {percentage:.2f}% hai."
+                    )
+
                 return (
-                    f"Your current attendance is "
-                    f"{summary['percentage']:.2f}%. "
-                    f"You were present for "
-                    f"{summary.get('present', 0)} out of "
-                    f"{summary.get('total_days', 0)} days and absent for "
-                    f"{summary.get('absent', 0)} days."
+                    f"{owner} current attendance is "
+                    f"{percentage:.2f}%."
                 )
 
-    # ============================================================
+        # -----------------------------------------------------
+        # Absences
+        # -----------------------------------------------------
+
+        if (
+            "absent" in question_lower
+            or "absence" in question_lower
+            or "missed" in question_lower
+        ):
+
+            absent = summary.get("absent")
+
+            if absent is not None:
+
+                if user_role == "parent":
+                    return (
+                        f"Your child has been absent for "
+                        f"{absent} days."
+                    )
+
+                return f"You have been absent for {absent} days."
+
+        # -----------------------------------------------------
+        # General attendance
+        # -----------------------------------------------------
+
+        if percentage is not None:
+
+            present = summary.get("present", 0)
+            absent = summary.get("absent", 0)
+            total = summary.get("total_days", 0)
+
+            if user_role == "parent":
+                return (
+                    f"Your child's current attendance is "
+                    f"{percentage:.2f}%. "
+                    f"Your child was present for {present} out of "
+                    f"{total} days and absent for {absent} days."
+                )
+
+            return (
+                f"Your current attendance is "
+                f"{percentage:.2f}%. "
+                f"You were present for {present} out of "
+                f"{total} days and absent for {absent} days."
+            )
+
+    # =========================================================
     # LANGUAGE
-    # ============================================================
+    # =========================================================
 
     if language.upper() == "HINDI":
+
         language_instruction = """
 Answer completely in Hindi using Devanagari script.
-Use simple, natural Hindi.
+Use simple and natural Hindi.
 """
 
     elif language.upper() == "HINGLISH":
+
         language_instruction = """
 Answer in natural Indian Hinglish.
 Use only English/Roman script.
@@ -138,437 +276,92 @@ Do not use Devanagari.
 """
 
     else:
+
         language_instruction = """
 Answer in clear, natural English.
 """
 
-    # ============================================================
-    # CLEAN TOOL RESULT
-    # ============================================================
+    # =========================================================
+    # CLEAN RESULT
+    # =========================================================
 
-    if isinstance(results, dict):
-        results = {
-            key: value
-            for key, value in results.items()
-            if key not in {
-                "success",
-                "student_id"
-            }
+    clean_results = {
+        key: value
+        for key, value in results.items()
+        if key not in {
+            "success",
+            "student_id",
+            "type"
         }
+    }
 
     context = json.dumps(
-        results,
+        clean_results,
         default=str,
         indent=2
     )
-    
-    
 
-    # ============================================================
-    # FINAL ANSWER PROMPT
-    # ============================================================
+    # =========================================================
+    # GENERAL LLM RESPONSE
+    # =========================================================
 
     prompt = f"""
 You are a School AI Assistant.
 
-Your ONLY job is to convert the CURRENT TOOL RESULT into a
-clear, natural answer to the user's CURRENT QUESTION.
-
-============================================================
-CURRENT USER QUESTION
-============================================================
-
-{question}
-
-============================================================
-CURRENT TOOL RESULT
-============================================================
-
-{context}
-
-============================================================
-LANGUAGE
-============================================================
-
-{language_instruction}
-
-============================================================
-ABSOLUTE RULES
-============================================================
-
-1. Answer ONLY the current user's question.
-
-2. Use ONLY facts contained in the CURRENT TOOL RESULT.
-
-3. NEVER use information from previous questions.
-
-4. NEVER use information from previous tool calls.
-
-5. NEVER assume information that is not present in the
-   CURRENT TOOL RESULT.
-
-6. NEVER invent:
-   - marks
-   - subjects
-   - attendance percentages
-   - attendance requirements
-   - assignments
-   - deadlines
-   - timetable entries
-   - dates
-   - grades
-   - eligibility
-   - recommendations
-
-7. If the CURRENT TOOL RESULT does not contain enough
-   information to answer the question, clearly say that
-   the available information is insufficient.
-
-8. NEVER mention:
-   - database
-   - SQL
-   - Python
-   - RAG
-   - tool
-   - tools
-   - JSON
-   - implementation
-   - internal fields
-   - prompt
-   - instructions
-   - reasoning
-
-9. NEVER mention internal fields such as:
-   - success
-   - student_id
-   - type
-
-10. Do not repeat the user's question.
-
-11. Answer the question directly.
-
-12. Keep simple factual answers concise.
-
-13. Use bullet points when several pieces of information
-    need to be shown.
-
-14. Do not provide recommendations unless the CURRENT TOOL
-    RESULT contains enough information to support them.
-    
-    
-# =========================================================
-    # PROFILE RESPONSE
-    # =========================================================
-
-    if results.get("type") == "profile":
-
-        if not results.get("success"):
-            return "I couldn't find your student profile."
-
-        question_lower = question.lower()
-
-        if "roll" in question_lower:
-            return f"Your roll number is {results.get('roll_number')}."
-
-        if "admission" in question_lower:
-            return f"Your admission number is {results.get('admission_number')}."
-
-        if "date of birth" in question_lower or "dob" in question_lower:
-            return f"Your date of birth is {results.get('date_of_birth')}."
-
-        return (
-            f"Your name is {results.get('first_name')} "
-            f"{results.get('last_name')}."
-        )
-
-============================================================
-ATTENDANCE
-============================================================
-
-For attendance questions, use ONLY attendance information
-present in the CURRENT TOOL RESULT.
-
-Possible attendance information may include:
-
-- total_days
-- present
-- absent
-- late
-- percentage
-- minimum_percentage
-- required_percentage
-- eligibility
-- eligible
-- policy
-
-------------------------------------------------------------
-ATTENDANCE PERCENTAGE
-------------------------------------------------------------
-
-If the user asks:
-
-- What is my attendance?
-- What percentage of classes have I attended?
-- How much attendance do I have?
-- What is my attendance percentage?
-
-Give the attendance percentage if it is present.
-
-Example:
-
-"Your current attendance is 94.38%."
-
-Do not discuss marks or subjects.
-
-------------------------------------------------------------
-ATTENDANCE ELIGIBILITY
-------------------------------------------------------------
-
-If the user asks:
-
-- Am I eligible based on my attendance?
-- Am I eligible for the exam?
-- Can I sit for the exam based on my attendance?
-- Do I meet the attendance requirement?
-- Is my attendance enough?
-- Am I allowed based on my attendance?
-
-First check whether the CURRENT TOOL RESULT contains:
-
-1. An explicit eligibility result, OR
-2. Both:
-   - student's attendance percentage
-   - required/minimum attendance percentage
-
-If an explicit eligibility result is available, use it.
-
-If both percentages are available, compare them.
-
-Example:
-
-Attendance = 94.38%
-Required = 75%
-
-Answer:
-
-"Yes, you are eligible based on your attendance. Your attendance
-is 94.38%, which is above the required 75%."
-
-If:
-
-Attendance = 68%
-Required = 75%
-
-Answer:
-
-"No, you currently do not meet the attendance requirement.
-Your attendance is 68%, while the required minimum is 75%."
-
-IMPORTANT:
-
-If the CURRENT TOOL RESULT contains only the attendance
-percentage and does NOT contain the required percentage or
-eligibility result, DO NOT assume the requirement.
-
-Example:
-
-Attendance = 94.38%
-
-Correct answer:
-
-"Your current attendance is 94.38%, but I don't have the
-required minimum attendance percentage needed to determine
-your eligibility."
-
-NEVER assume that the minimum requirement is 75% unless
-75% is explicitly present in the CURRENT TOOL RESULT.
-
-------------------------------------------------------------
-ATTENDANCE ABSENCES
-------------------------------------------------------------
-
-If the user asks:
-
-- How many days was I absent?
-- How many classes did I miss?
-- How many absences do I have?
-
-Use the absent value from the CURRENT TOOL RESULT.
-
-Example:
-
-"You have been absent for 5 days."
-
-Do not discuss marks or subjects.
-
-============================================================
-MARKS
-============================================================
-
-For marks-related questions, use ONLY marks present in the
-CURRENT TOOL RESULT.
-
-Do not introduce attendance information unless it is present
-and directly relevant.
-
-If multiple examinations are present, show the relevant
-examinations clearly.
-
-If the user asks for latest marks, use only the most recent
-examination contained in the CURRENT TOOL RESULT.
-
-If the user asks for strongest subject, weakest subject,
-focus subject, most improved subject, or least improved
-subject, only identify it if the CURRENT TOOL RESULT contains
-enough information to determine it.
-
-Never invent a subject or score.
-
-============================================================
-ASSIGNMENTS
-============================================================
-
-For assignment questions, use ONLY assignment information
-present in the CURRENT TOOL RESULT.
-
-Examples of questions:
-
-- What assignments do I have?
-- Which assignments are pending?
-- What is my next assignment?
-- What is my assignment deadline?
-- Which assignment have I not submitted?
-
-Use only the assignment names, dates, status, subjects,
-deadlines, or grades that are actually present.
-
-Never invent an assignment or deadline.
-
-============================================================
-TIMETABLE
-============================================================
-
-For timetable questions, use ONLY timetable information
-present in the CURRENT TOOL RESULT.
-
-Examples:
-
-- What classes do I have today?
-- What is my timetable?
-- What is my first class?
-- When is Mathematics?
-- What class do I have tomorrow?
-
-Use only classes, subjects, teachers, rooms, dates, and
-times actually present.
-
-Never invent timetable information.
-
-============================================================
-INSUFFICIENT INFORMATION
-============================================================
-
-If the CURRENT TOOL RESULT does not contain enough information
-to answer the question, say so clearly.
-
-For example:
-
-"I don't have enough information to determine that."
-
-For attendance eligibility specifically:
-
-"I can see your attendance percentage, but I don't have the
-minimum attendance requirement needed to determine eligibility."
-
-Do NOT guess.
-
-============================================================
-NO CROSS-CONTAMINATION
-============================================================
-
-This is extremely important.
-
-If the current question is about ATTENDANCE:
-
-DO NOT mention:
-- Computer Science
-- Mathematics
-- English
-- Science
-- Social Science
-- Mid Term
-- Final Examination
-- latest marks
-- weakest subject
-- strongest subject
-
-unless those details are explicitly present in the CURRENT
-TOOL RESULT and are directly relevant.
-
-If the current question is about ASSIGNMENTS:
-
-DO NOT mention attendance or examination marks unless they
-are explicitly present and directly relevant.
-
-If the current question is about TIMETABLE:
-
-DO NOT mention marks, attendance, or assignments unless they
-are explicitly present and directly relevant.
-
-The CURRENT TOOL RESULT is the ONLY source of factual
-information.
-
-============================================================
-ANSWER STYLE
-============================================================
-
-Be:
-
-- natural
-- helpful
-- concise
-- student-friendly
-- direct
-
-For simple questions, answer in 1-3 sentences.
-
-For lists, use bullet points.
-
-Do not add unnecessary recommendations.
-
-Do not explain your reasoning.
-
-Do not mention internal systems.
-
-============================================================
-FINAL ANSWER
-============================================================
-
-Now answer the CURRENT USER QUESTION using ONLY the
-CURRENT TOOL RESULT.
+Answer the CURRENT USER QUESTION using ONLY the CURRENT RESULT.
 
 CURRENT USER QUESTION:
 {question}
 
-CURRENT TOOL RESULT:
+CURRENT RESULT:
 {context}
+
+{language_instruction}
+
+Rules:
+
+1. Answer only the current question.
+2. Use only facts in the current result.
+3. Never invent information.
+4. Never use information from previous questions.
+5. Never mention databases, SQL, Python, RAG, tools,
+   JSON, prompts, internal fields, or implementation.
+6. If information is missing, clearly say that you do not
+   have enough information.
+7. Keep the answer concise.
+8. Use bullet points for lists.
+
+USER ROLE:
+{user_role}
+
+Role wording:
+
+- student: use "your"
+- parent: use "your child" or "your child's"
+- teacher: use "the student" or the student's name
+
+Answer now.
 """
 
-    # ============================================================
-    # CALL OLLAMA
-    # ============================================================
+    try:
 
-    response = ollama.chat(
-        model=MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
+        response = ollama.chat(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            options={
+                "temperature": 0.1
             }
-        ],
-        options={
-            "temperature": 0.1
-        }
-    )
+        )
 
-    return response["message"]["content"].strip()
+        return response["message"]["content"].strip()
+
+    except Exception as e:
+
+        print("Answer generation error:", e)
+
+        return "I couldn't generate an answer right now."

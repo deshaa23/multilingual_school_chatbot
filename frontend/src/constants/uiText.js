@@ -50,7 +50,6 @@ export const uiText = {
             "Show attendance",
             "Show assignments",
             "Show timetable",
-            "Who is the class teacher?",
             "What are the library rules?"
         ]
     },

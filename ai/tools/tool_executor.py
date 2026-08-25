@@ -8,6 +8,11 @@ from ai.tools.profile_tool import get_profile
 def execute_tool(
     tool_name: str,
     student_id: int,
+    subject=None,
+    exam=None,
+    day=None,
+    status=None,
+    metric=None,
     **kwargs
 ):
     """
