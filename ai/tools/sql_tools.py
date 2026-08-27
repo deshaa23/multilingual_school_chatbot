@@ -8,15 +8,34 @@ from ai.tools.performance_tool import get_performance_data
 def run_sql_tool(
     tool_name: str,
     student_id: int,
+    question=None,
     **kwargs
 ):
     """
     Central dispatcher for SQL/data retrieval tools.
     """
 
-    # -----------------------------
-    # Marks
-    # -----------------------------
+    print()
+    print("========== SQL TOOL DISPATCHER ==========")
+    print(f"Tool Name : {tool_name}")
+    print(f"Student ID: {student_id}")
+    print(f"Question  : {question}")
+    print(f"Arguments : {kwargs}")
+    print("=========================================")
+    print()
+
+    # =========================================================
+    # NORMALIZE TOOL NAME
+    # =========================================================
+
+    if tool_name.endswith("_tool"):
+
+        tool_name = tool_name[:-5]
+
+    # =========================================================
+    # MARKS
+    # =========================================================
+
     if tool_name == "marks":
 
         return get_marks(
@@ -25,19 +44,29 @@ def run_sql_tool(
             exam=kwargs.get("exam")
         )
 
-    # -----------------------------
-    # Attendance
-    # -----------------------------
+    # =========================================================
+    # ATTENDANCE
+    # =========================================================
+
     if tool_name == "attendance":
 
         return get_attendance(
             student_id=student_id,
-            metric=kwargs.get("metric")
+            metric=kwargs.get(
+                "metric"
+            ),
+
+            attendance_phrase=kwargs.get(
+                "attendance_phrase"
+            ),
+
+            question=question
         )
 
-    # -----------------------------
-    # Assignments
-    # -----------------------------
+    # =========================================================
+    # ASSIGNMENTS
+    # =========================================================
+
     if tool_name == "assignments":
 
         return get_assignments(
@@ -45,9 +74,10 @@ def run_sql_tool(
             status=kwargs.get("status")
         )
 
-    # -----------------------------
-    # Performance
-    # -----------------------------
+    # =========================================================
+    # PERFORMANCE
+    # =========================================================
+
     if tool_name == "performance":
 
         return get_performance_data(
@@ -55,9 +85,10 @@ def run_sql_tool(
             metric=kwargs.get("metric")
         )
 
-    # -----------------------------
-    # Timetable
-    # -----------------------------
+    # =========================================================
+    # TIMETABLE
+    # =========================================================
+
     if tool_name == "timetable":
 
         return get_timetable(
@@ -65,9 +96,10 @@ def run_sql_tool(
             day=kwargs.get("day")
         )
 
-    # -----------------------------
-    # Unknown tool
-    # -----------------------------
+    # =========================================================
+    # UNKNOWN TOOL
+    # =========================================================
+
     raise ValueError(
         f"Unknown SQL tool: {tool_name}"
     )

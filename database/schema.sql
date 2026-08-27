@@ -212,5 +212,20 @@ rename to parent_students;
 alter table students
 add column admission_number varchar(20) unique;
 
+SELECT
+    attendance_date,
+    status
+FROM attendance
+WHERE student_id = 10
+ORDER BY attendance_date;
 
 
+SELECT
+    YEAR(attendance_date) AS year,
+    MONTH(attendance_date) AS month,
+    status,
+    COUNT(*) AS count
+FROM attendance
+WHERE student_id = 10
+GROUP BY YEAR(attendance_date), MONTH(attendance_date), status
+ORDER BY year, month, status;

@@ -29,7 +29,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://surf-arc-magnitude-westminster.trycloudflare.com"
+        "https://framework-tony-dealt-thru.trycloudflare.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],

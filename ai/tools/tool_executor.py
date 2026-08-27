@@ -13,6 +13,8 @@ def execute_tool(
     day=None,
     status=None,
     metric=None,
+    attendance_phrase=None,
+    question=None,
     **kwargs
 ):
     """
@@ -40,7 +42,9 @@ def execute_tool(
         return run_sql_tool(
             tool_name="attendance",
             student_id=student_id,
-            metric= kwargs.get("metric")
+            metric=metric,
+            attendance_phrase=kwargs.get("attendance_phrase"),
+            question = question 
         )
 
     # ==========================================
@@ -52,7 +56,7 @@ def execute_tool(
         return run_sql_tool(
             tool_name="assignments",
             student_id=student_id,
-            status=kwargs.get("status")
+            status=status
         )
 
     # ==========================================
@@ -64,7 +68,7 @@ def execute_tool(
         return run_sql_tool(
             tool_name="timetable",
             student_id=student_id,
-            day=kwargs.get("day")
+            day=day
         )
 
     # ==========================================
@@ -78,7 +82,7 @@ def execute_tool(
             student_id=student_id,
             **kwargs
         )
-        
+
     # ==========================================
     # PROFILE
     # ==========================================
@@ -87,7 +91,7 @@ def execute_tool(
 
         return get_profile(
             student_id=student_id,
-            metric=kwargs.get("metric")
+            metric=metric
         )
 
     # ==========================================

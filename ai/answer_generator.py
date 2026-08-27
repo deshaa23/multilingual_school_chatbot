@@ -76,7 +76,7 @@ def generate_answer(
 
         return f"{owner} name is {first_name} {last_name}.".strip()
 
-    # =========================================================
+        # =========================================================
     # ATTENDANCE
     # =========================================================
 
@@ -86,12 +86,36 @@ def generate_answer(
         eligibility = results.get("eligibility", {})
 
         percentage = summary.get("percentage")
+        present = summary.get("present", 0)
+        absent = summary.get("absent", 0)
+        late = summary.get("late", 0)
+        total = summary.get("total_days", 0)
 
-        # -----------------------------------------------------
-        # Eligibility question
-        # -----------------------------------------------------
+        period = results.get("period")
+        month = results.get("month")
+        year = results.get("year")
 
         question_lower = question.lower()
+
+        # -----------------------------------------------------
+        # BUILD PERIOD TEXT
+        # -----------------------------------------------------
+
+        if period and period not in ("Overall", "Current Month", "Last Month"):
+            period_text = f"for {period}"
+
+        elif period == "Current Month":
+            period_text = "for the current month"
+
+        elif period == "Last Month":
+            period_text = "for last month"
+
+        else:
+            period_text = "overall"
+
+        # -----------------------------------------------------
+        # ELIGIBILITY QUESTION
+        # -----------------------------------------------------
 
         eligibility_question = any(
             phrase in question_lower
@@ -121,15 +145,15 @@ def generate_answer(
 
                     if eligible:
                         return (
-                            f"हाँ, {subject_pronoun.lower()} attendance "
-                            f"requirement के लिए eligible है। "
-                            f"Attendance {percentage:.2f}% है और "
+                            f"हाँ, {subject_pronoun.lower()} "
+                            f"attendance requirement के लिए eligible है। "
+                            f"{percentage:.2f}% attendance है और "
                             f"required attendance {required:.0f}% है।"
                         )
 
                     return (
-                        f"नहीं, {subject_pronoun.lower()} attendance "
-                        f"requirement के लिए eligible नहीं है। "
+                        f"नहीं, {subject_pronoun.lower()} "
+                        f"attendance requirement के लिए eligible नहीं है। "
                         f"Attendance {percentage:.2f}% है, जबकि "
                         f"required attendance {required:.0f}% है।"
                     )
@@ -138,15 +162,15 @@ def generate_answer(
 
                     if eligible:
                         return (
-                            f"Yes, {subject_pronoun.lower()} attendance "
-                            f"requirement ke liye eligible hai. "
-                            f"Attendance {percentage:.2f}% hai aur "
+                            f"Yes, {subject_pronoun.lower()} "
+                            f"attendance requirement ke liye eligible hai. "
+                            f"{percentage:.2f}% attendance hai aur "
                             f"required attendance {required:.0f}% hai."
                         )
 
                     return (
-                        f"Nahi, {subject_pronoun.lower()} attendance "
-                        f"requirement ke liye eligible nahi hai. "
+                        f"Nahi, {subject_pronoun.lower()} "
+                        f"attendance requirement ke liye eligible nahi hai. "
                         f"Attendance {percentage:.2f}% hai, jabki "
                         f"required attendance {required:.0f}% hai."
                     )
@@ -157,7 +181,7 @@ def generate_answer(
                         return (
                             f"Yes, {subject_pronoun.lower()} meets the "
                             f"attendance requirement. "
-                            f"{owner.lower()} attendance is "
+                            f"{owner} attendance {period_text} is "
                             f"{percentage:.2f}%, while the required "
                             f"attendance is {required:.0f}%."
                         )
@@ -165,20 +189,153 @@ def generate_answer(
                     return (
                         f"No, {subject_pronoun.lower()} does not meet the "
                         f"attendance requirement. "
-                        f"{owner.lower()} attendance is "
+                        f"{owner} attendance {period_text} is "
                         f"{percentage:.2f}%, while the required "
                         f"attendance is {required:.0f}%."
                     )
 
-            if percentage is not None:
+        # -----------------------------------------------------
+        # ABSENCE QUESTION
+        # -----------------------------------------------------
+
+        if (
+            "absent" in question_lower
+            or "absence" in question_lower
+            or "missed" in question_lower
+        ):
+
+            if user_role == "parent":
+
                 return (
-                    f"{owner} attendance is {percentage:.2f}%, "
-                    f"but I don't have the required minimum attendance "
-                    f"percentage needed to determine eligibility."
+                    f"Your child was absent for {absent} days "
+                    f"{period_text}."
                 )
 
-            return "I don't have enough information to determine attendance eligibility."
+            elif user_role == "teacher":
 
+                return (
+                    f"The student was absent for {absent} days "
+                    f"{period_text}."
+                )
+
+            else:
+
+                return (
+                    f"You were absent for {absent} days "
+                    f"{period_text}."
+                )
+
+        # -----------------------------------------------------
+        # PRESENT / ATTENDED QUESTION
+        # -----------------------------------------------------
+
+        if (
+            "present" in question_lower
+            or "attended" in question_lower
+        ):
+
+            if user_role == "parent":
+
+                return (
+                    f"Your child was present for {present} out of "
+                    f"{total} recorded days {period_text}."
+                )
+
+            elif user_role == "teacher":
+
+                return (
+                    f"The student was present for {present} out of "
+                    f"{total} recorded days {period_text}."
+                )
+
+            else:
+
+                return (
+                    f"You were present for {present} out of "
+                    f"{total} recorded days {period_text}."
+                )
+
+        # -----------------------------------------------------
+        # ATTENDANCE PERCENTAGE
+        # -----------------------------------------------------
+
+        if (
+            "percentage" in question_lower
+            or "attendance" in question_lower
+        ):
+
+            if percentage is not None:
+
+                if language.upper() == "HINDI":
+
+                    if period == "Overall":
+                        return (
+                            f"आपकी कुल उपस्थिति {percentage:.2f}% है। "
+                            f"आप {total} में से {present} दिनों उपस्थित रहे।"
+                        )
+
+                    return (
+                        f"{period} में आपकी उपस्थिति "
+                        f"{percentage:.2f}% है। "
+                        f"आप {total} में से {present} दिनों उपस्थित रहे।"
+                    )
+
+                if language.upper() == "HINGLISH":
+
+                    if period == "Overall":
+                        return (
+                            f"Aapki overall attendance "
+                            f"{percentage:.2f}% hai. "
+                            f"Aap {total} mein se {present} din present the."
+                        )
+
+                    return (
+                        f"Aapki {period} attendance "
+                        f"{percentage:.2f}% hai. "
+                        f"Aap {total} mein se {present} din present the."
+                    )
+
+                # ENGLISH
+
+                if period == "Overall":
+
+                    return (
+                        f"Your overall attendance is "
+                        f"{percentage:.2f}%. "
+                        f"You were present for {present} out of "
+                        f"{total} recorded days."
+                    )
+
+                return (
+                    f"Your {period} attendance is "
+                    f"{percentage:.2f}%. "
+                    f"You were present for {present} out of "
+                    f"{total} recorded days."
+                )
+
+        # -----------------------------------------------------
+        # GENERAL ATTENDANCE FALLBACK
+        # -----------------------------------------------------
+
+        if percentage is not None:
+
+            if period == "Overall":
+
+                return (
+                    f"Your overall attendance is "
+                    f"{percentage:.2f}%. "
+                    f"You were present for {present} out of "
+                    f"{total} recorded days and absent for "
+                    f"{absent} days."
+                )
+
+            return (
+                f"Your {period} attendance is "
+                f"{percentage:.2f}%. "
+                f"You were present for {present} out of "
+                f"{total} recorded days and absent for "
+                f"{absent} days."
+            )
         # -----------------------------------------------------
         # Percentage
         # -----------------------------------------------------
