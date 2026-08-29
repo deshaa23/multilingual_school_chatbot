@@ -29,8 +29,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://framework-tony-dealt-thru.trycloudflare.com"
-        "http://3.7.78.63"
+        "http://3.7.78.63",
     ],
     allow_origins=["*"],
     allow_credentials=True,
@@ -38,7 +37,3 @@ app.add_middleware(
     allow_headers=["*"],
     
 )
-
-app.include_router(auth_router)
-app.include_router(student_router)
-app.include_router(chat_router)
