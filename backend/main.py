@@ -30,7 +30,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "https://framework-tony-dealt-thru.trycloudflare.com"
+        "http://3.7.78.63"
     ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
