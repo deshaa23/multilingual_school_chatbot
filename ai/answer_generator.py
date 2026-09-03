@@ -19,6 +19,41 @@ def generate_answer(
         return "I don't have enough information to answer that."
 
     result_type = results.get("type")
+    
+        # =========================================================
+    # CLASS RANK
+    # =========================================================
+
+    if result_type == "class_rank":
+
+        rank_results = results.get("results", [])
+
+        if not rank_results:
+            return "I couldn't find your child's class rank."
+
+        rank_data = rank_results[0]
+
+        class_rank = rank_data.get("class_rank")
+        total_marks = rank_data.get("total_marks")
+
+        if class_rank is None:
+            return "I couldn't determine your child's class rank."
+
+        if user_role == "parent":
+
+            return (
+                f"Your child's class rank is {class_rank}."
+            )
+
+        elif user_role == "teacher":
+
+            return (
+                f"The student's class rank is {class_rank}."
+            )
+
+        return (
+            f"Your class rank is {class_rank}."
+        )
 
     # =========================================================
     # ROLE WORDING
