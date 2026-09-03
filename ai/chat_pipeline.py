@@ -464,15 +464,31 @@ def process_query(
     # =========================================================
 
     if (
-        tool_name == "marks_tool"
-        and result
-        and result.get("success")
-    ):
-
+    tool_name == "marks_tool"
+    and result
+    and result.get("success")
+):
         raw_results = result.get(
-            "results",
-            []
-        )
+        "results",
+        []
+    )
+
+    # =========================================================
+    # CLASS RANK
+    # =========================================================
+
+    if route.get("metric") == "class_rank":
+
+        # Class rank result is already calculated by SQL.
+        # Do NOT send it through normal marks analysis.
+
+        result["analysis"] = {
+            "success": True,
+            "type": "class_rank",
+            "message": "Class rank calculated successfully."
+        }
+
+    else:
 
         analysis = analyze_marks(
             raw_results
@@ -480,15 +496,15 @@ def process_query(
 
         result["analysis"] = analysis
 
-        # Preserve route information
+    # Preserve route information
 
-        result["metric"] = route.get(
-            "metric"
-        )
+    result["metric"] = route.get(
+        "metric"
+    )
 
-        result["requested_subject"] = route.get(
-            "subject"
-        )
+    result["requested_subject"] = route.get(
+        "subject"
+    )
 
     # =========================================================
     # 6. RETURN RESULT
