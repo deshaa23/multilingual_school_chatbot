@@ -41,7 +41,8 @@ def run_sql_tool(
         return get_marks(
             student_id=student_id,
             subject=kwargs.get("subject"),
-            exam=kwargs.get("exam")
+            exam=kwargs.get("exam"),
+            metric=kwargs.get("metric")
         )
 
     # =========================================================

@@ -30,7 +30,9 @@ def execute_tool(
         return run_sql_tool(
             tool_name="marks",
             student_id=student_id,
-            **kwargs
+            subject=subject,
+            exam=exam,
+            metric=metric
         )
 
     # ==========================================

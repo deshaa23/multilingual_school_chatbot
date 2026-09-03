@@ -19,6 +19,69 @@ def get_marks(
     This tool returns raw mark information.
     It does not generate a natural-language answer.
     """
+    
+        # =========================================================
+    # CLASS RANK
+    # =========================================================
+
+    if metric == "class_rank":
+
+        query = """
+            WITH class_totals AS (
+                SELECT
+                    s.student_id,
+                    s.first_name,
+                    s.last_name,
+                    SUM(m.marks_obtained) AS total_marks
+                FROM students s
+                JOIN marks m
+                    ON s.student_id = m.student_id
+                WHERE s.class_id = (
+                    SELECT class_id
+                    FROM students
+                    WHERE student_id = %s
+                )
+                GROUP BY
+                    s.student_id,
+                    s.first_name,
+                    s.last_name
+            ),
+            ranked_students AS (
+                SELECT
+                    student_id,
+                    first_name,
+                    last_name,
+                    total_marks,
+                    RANK() OVER (
+                        ORDER BY total_marks DESC
+                    ) AS class_rank
+                FROM class_totals
+            )
+            SELECT
+                student_id,
+                first_name,
+                last_name,
+                total_marks,
+                class_rank
+            FROM ranked_students
+            WHERE student_id = %s;
+        """
+
+        results = fetch_all(
+            query,
+            (
+                student_id,
+                student_id
+            )
+        )
+
+        return {
+            "type": "class_rank",
+            "success": True,
+            "student_id": student_id,
+            "metric": metric,
+            "results": results
+        }
 
     query = """
         SELECT
