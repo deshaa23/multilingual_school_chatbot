@@ -194,6 +194,38 @@ def route_question(question: str) -> dict:
         return make_route(
             "rag_tool"
         )
+        
+        # =========================================================
+    # CLASS RANK
+    # =========================================================
+
+    class_rank_keywords = [
+        "class rank",
+        "class ranking",
+        "rank in class",
+        "rank in my class",
+        "my rank",
+        "my class rank",
+        "child rank",
+        "child's rank",
+        "child rank in class",
+        "child's rank in class",
+        "rank of my child",
+        "position in class",
+        "class position",
+        "my position in class",
+        "child position in class",
+        "child's position in class",
+    ]
+
+    if any(keyword in q for keyword in class_rank_keywords):
+
+        print("Deterministic route: marks_tool [class_rank]")
+
+        return make_route(
+            "marks_tool",
+            metric="class_rank"
+        )
 
     # =========================================================
 # ATTENDANCE
@@ -669,6 +701,7 @@ Possible metrics:
 - focus
 - subject_analysis
 - null
+- class_rank
 
 USER QUESTION:
 
@@ -868,7 +901,7 @@ def deterministic_fallback(question: str):
         )
         
         
-        # =========================================================
+    # =========================================================
     # CLASS RANK
     # =========================================================
 
