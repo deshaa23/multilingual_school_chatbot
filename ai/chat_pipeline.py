@@ -464,47 +464,48 @@ def process_query(
     # =========================================================
 
     if (
-    tool_name == "marks_tool"
-    and result
-    and result.get("success")
-):
+        tool_name == "marks_tool"
+        and result
+        and result.get("success")
+    ):
+
         raw_results = result.get(
-        "results",
-        []
-    )
-
-    # =========================================================
-    # CLASS RANK
-    # =========================================================
-
-    if route.get("metric") == "class_rank":
-
-        # Class rank result is already calculated by SQL.
-        # Do NOT send it through normal marks analysis.
-
-        result["analysis"] = {
-            "success": True,
-            "type": "class_rank",
-            "message": "Class rank calculated successfully."
-        }
-
-    else:
-
-        analysis = analyze_marks(
-            raw_results
+            "results",
+            []
         )
 
-        result["analysis"] = analysis
+        # =====================================================
+        # CLASS RANK
+        # =====================================================
 
-    # Preserve route information
+        if route.get("metric") == "class_rank":
 
-    result["metric"] = route.get(
-        "metric"
-    )
+            # Class rank is already calculated by SQL.
+            # Do NOT send it through normal marks analysis.
 
-    result["requested_subject"] = route.get(
-        "subject"
-    )
+            result["analysis"] = {
+                "success": True,
+                "type": "class_rank",
+                "message": "Class rank calculated successfully."
+            }
+
+        else:
+
+            analysis = analyze_marks(
+                raw_results
+            )
+
+            result["analysis"] = analysis
+
+        # Preserve route information
+
+        result["metric"] = route.get(
+            "metric"
+        )
+
+        result["requested_subject"] = route.get(
+            "subject"
+        )
 
     # =========================================================
     # 6. RETURN RESULT
